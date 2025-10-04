@@ -11,7 +11,7 @@ Think of it as a simpler [Recaf](https://github.com/Col-E/Recaf)/[Jbytedit](http
 - 🪄 **Dual View** — displays decompiled Java and ASM bytecode side-by-side
 - ⚡ **Search function** — live filter classes by name
 - 🛠️ **One-click run** — no config needed; just open JARs on the fly!
-- 🧩 **Extensible** — plug in additional decompilers or UI modules
+- 🧩 **Pattern analyzer** — built-in pattern recognition for common string encryption methods
 
 ---
 
