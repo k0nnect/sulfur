@@ -1,0 +1,58 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+
+}
+
+shadowJar {
+    archiveBaseName.set('sulfur')
+    archiveClassifier.set('')  // no “-all”
+    archiveVersion.set('')     // no version suffix
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
+}
+
+dependencies {
+// bytecode reading & text output
+    implementation 'org.ow2.asm:asm:9.8'
+    implementation 'org.ow2.asm:asm-util:9.8'
+        // CFR
+        implementation 'com.github.leibnitz27:cfr:0.152'
+    // procyon
+    implementation 'org.bitbucket.mstrobel:procyon-core:0.6.0'
+    implementation 'org.bitbucket.mstrobel:procyon-compilertools:0.6.0'
+    // UI helpers
+    implementation 'org.jetbrains:annotations:24.1.0'
+}
+
+application {
+    mainClass = 'com.sulfur.App'
+}
+
+// make jars run with dependencies (fat jar)
+tasks.register('fatJar', Jar) {
+    archiveClassifier = 'all'
+    from sourceSets.main.output
+    dependsOn configurations.runtimeClasspath
+    from {
+        configurations.runtimeClasspath.findAll { it.name.endsWith('jar') }.collect { zipTree(it) }
+    }
+    manifest {
+        attributes 'Main-Class': application.
+                tasks.jar {
+            manifest {
+                attributes 'Main-Class': application.mainClass
+            }
+        }
+    }
+}
