@@ -9,13 +9,16 @@ public class AppSettings {
     private static final String SETTINGS_FILE = "sulfur_settings.properties";
     private static final String USE_CFR_KEY = "useCfrDecompiler";
     private static final String DARK_THEME_KEY = "darkTheme";
+    private static final String ZKM_DEOBFUSCATION_KEY = "zkmDeobfuscation";
     
     private boolean useCfrDecompiler;
     private boolean darkTheme;
+    private boolean zkmDeobfuscation;
     
     public AppSettings() {
         this.useCfrDecompiler = false;
         this.darkTheme = false;
+        this.zkmDeobfuscation = false;
     }
     
     public static AppSettings loadSettings() {
@@ -29,6 +32,7 @@ public class AppSettings {
                     props.load(in);
                     settings.useCfrDecompiler = Boolean.parseBoolean(props.getProperty(USE_CFR_KEY, "false"));
                     settings.darkTheme = Boolean.parseBoolean(props.getProperty(DARK_THEME_KEY, "false"));
+                    settings.zkmDeobfuscation = Boolean.parseBoolean(props.getProperty(ZKM_DEOBFUSCATION_KEY, "false"));
                 }
             }
         } catch (Exception e) {
@@ -42,6 +46,7 @@ public class AppSettings {
         Properties props = new Properties();
         props.setProperty(USE_CFR_KEY, Boolean.toString(useCfrDecompiler));
         props.setProperty(DARK_THEME_KEY, Boolean.toString(darkTheme));
+        props.setProperty(ZKM_DEOBFUSCATION_KEY, Boolean.toString(zkmDeobfuscation));
         
         try (FileOutputStream out = new FileOutputStream(SETTINGS_FILE)) {
             props.store(out, "Decompiler Settings");
@@ -64,5 +69,13 @@ public class AppSettings {
 
     public void setDarkTheme(boolean darkTheme) {
         this.darkTheme = darkTheme;
+    }
+    
+    public boolean isZkmDeobfuscation() {
+        return zkmDeobfuscation;
+    }
+    
+    public void setZkmDeobfuscation(boolean zkmDeobfuscation) {
+        this.zkmDeobfuscation = zkmDeobfuscation;
     }
 }

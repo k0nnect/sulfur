@@ -49,13 +49,13 @@ import java.util.jar.JarFile;
 
             String entryName = classToEntry.get(className);
             if (entryName == null) {
-                throw new IOException("[!] Class not found in JAR: " + className);
+                throw new IOException("[!] Class not found in .jar file: " + className);
             }
             
             try (JarFile jf = new JarFile(jarPath.toFile())) {
                 JarEntry entry = jf.getJarEntry(entryName);
                 if (entry == null) {
-                    throw new IOException("[!] JAR entry not found: " + entryName);
+                    throw new IOException("[!] .jar file entry not found: " + entryName);
                 }
                 
                 byte[] bytes = readEntryBytes(jf, entry);

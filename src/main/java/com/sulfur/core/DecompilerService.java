@@ -27,14 +27,55 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import com.strobel.assembler.InputTypeLoader;
+import com.strobel.assembler.metadata.Buffer;
+import com.strobel.assembler.metadata.ITypeLoader;
+import com.strobel.assembler.metadata.MetadataSystem;
+import com.strobel.assembler.metadata.TypeDefinition;
+import com.strobel.assembler.metadata.TypeReference;
+import com.strobel.decompiler.DecompilationOptions;
+import com.strobel.decompiler.DecompilerSettings;
+import com.strobel.decompiler.PlainTextOutput;
+import com.strobel.decompiler.languages.java.JavaFormattingOptions;
+
+import com.sulfur.config.AppSettings;
+import com.sulfur.core.deobfuscator.ZKMDeobfuscator;
+import org.benf.cfr.reader.api.CfrDriver;
+import org.benf.cfr.reader.api.OutputSinkFactory;
+
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 public class DecompilerService {
     
+    private static final ZKMDeobfuscator zkmDeobfuscator = new ZKMDeobfuscator();
+    
     public static String decompile(JarIndex index, String className) throws Exception {
+        return decompile(index, className, AppSettings.loadSettings());
+    }
+    
+    public static String decompile(JarIndex index, String className, AppSettings settings) throws Exception {
         byte[] classBytes = index.getClassBytes(className);
-        return decompileWithProcyon(classBytes, className);
+        String decompiled = decompileWithProcyon(classBytes, className);
+        
+        // apply ZKM string deobfuscation if its enabled
+        if (settings.isZkmDeobfuscation()) {
+            decompiled = zkmDeobfuscator.process(decompiled);
+        }
+        
+        return decompiled;
     }
     
     public static String decompileWithCFR(JarIndex index, String className) throws Exception {
+        return decompileWithCFR(index, className, AppSettings.loadSettings());
+    }
+    
+    public static String decompileWithCFR(JarIndex index, String className, AppSettings settings) throws Exception {
         byte[] classBytes = index.getClassBytes(className);
 
         Map<String, String> options = new HashMap<>();
@@ -66,7 +107,14 @@ public class DecompilerService {
 
         driver.analyse(Collections.singletonList(className + ".class"));
         
-        return "/* Decompiled with CFR x Sulfur */\n" + result.toString();
+        String decompiled = "/* Decompiled with CFR x Sulfur */\n" + result.toString();
+        
+        // apply ZKM string deobfuscation if its enabled
+        if (settings.isZkmDeobfuscation()) {
+            decompiled = zkmDeobfuscator.process(decompiled);
+        }
+        
+        return decompiled;
     }
     
     private static String decompileWithProcyon(byte[] classBytes, String className) {
@@ -101,7 +149,7 @@ public class DecompilerService {
             }
             
             if (resolvedType == null) {
-                return "/* Error: Could not resolve type */";
+                return "/* [!] Error: Could not resolve type */";
             }
 
             DecompilationOptions options = new DecompilationOptions();
@@ -116,7 +164,7 @@ public class DecompilerService {
             StringWriter sw = new StringWriter();
             PrintWriter pw = new PrintWriter(sw);
             e.printStackTrace(pw);
-            return "/* Decompilation error:\n" + sw.toString() + "\n*/";
+            return "/* [!] Decompilation error:\n" + sw.toString() + "\n*/";
         }
     }
 }

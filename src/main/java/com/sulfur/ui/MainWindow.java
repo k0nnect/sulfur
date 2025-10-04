@@ -39,6 +39,7 @@ public class MainWindow {
     private JTabbedPane tabs;
     private JCheckBoxMenuItem useCfrMenuItem;
     private JCheckBoxMenuItem darkThemeMenuItem;
+    private JCheckBoxMenuItem zkmDeobfuscationMenuItem;
 
     private JarIndex index;
     private File currentJar;
@@ -157,18 +158,22 @@ worker.execute();
             try {
                 String decompiled;
                 if (settings.isUseCfrDecompiler()) {
-                    decompiled = DecompilerService.decompileWithCFR(index, className);
+                    decompiled = DecompilerService.decompileWithCFR(index, className, settings);
                 } else {
-                    decompiled = DecompilerService.decompile(index, className);
+                    decompiled = DecompilerService.decompile(index, className, settings);
                 }
-
+    
                 outputArea.setText(decompiled);
                 SyntaxHighlighter.highlightJava(outputArea);
-
+    
                 JTextArea bytecodeArea = (JTextArea) ((JScrollPane) tabs.getComponentAt(1)).getViewport().getView();
                 bytecodeArea.setText(Disassembler.disassemble(index, className));
                 
-                statusBar.setText("[!] Decompiled: " + className);
+                String statusMessage = "[!] Decompiled: " + className;
+                if (settings.isZkmDeobfuscation()) {
+                    statusMessage += " (with ZKM deobfuscation)";
+                }
+                statusBar.setText(statusMessage);
             } catch (Exception ex) {
                 outputArea.setText("[!] Failed to decompile: " + ex.getMessage());
                 statusBar.setText("[!] Error decompiling: " + className);
@@ -222,6 +227,19 @@ worker.execute();
         settings.saveSettings();
         themeManager.applyTheme(darkThemeMenuItem.isSelected());
     }
+    
+    private void toggleZkmDeobfuscation(boolean enabled) {
+        settings.setZkmDeobfuscation(enabled);
+        settings.saveSettings();
+        
+        // if a class is already decompiled, then refresh it to apply/remove ZKM deobf
+        if (currentClass != null && !currentClass.isEmpty()) {
+            decompileSelectedClass();
+        }
+        
+        String status = enabled ? "enabled" : "disabled";
+        statusBar.setText("[!] ZKM string deobfuscation " + status);
+    }
 
     private void init() {
         settings = AppSettings.loadSettings();
@@ -260,13 +278,20 @@ worker.execute();
         menuBar.add(fileMenu);
 
         var settingsMenu = new JMenu("Settings");
-        useCfrMenuItem = new JCheckBoxMenuItem("Use CFR 0.152", settings.isUseCfrDecompiler());
+        useCfrMenuItem = new JCheckBoxMenuItem("Use CFR 0.152 decompiler", settings.isUseCfrDecompiler());
         useCfrMenuItem.addActionListener(e -> toggleDecompilerBackend());
         settingsMenu.add(useCfrMenuItem);
         
         darkThemeMenuItem = new JCheckBoxMenuItem("Dark Theme", settings.isDarkTheme());
         darkThemeMenuItem.addActionListener(e -> toggleDarkTheme());
         settingsMenu.add(darkThemeMenuItem);
+        
+        settingsMenu.addSeparator();
+        
+        zkmDeobfuscationMenuItem = new JCheckBoxMenuItem("ZKM String Deobfuscation", 
+                settings.isZkmDeobfuscation());
+        zkmDeobfuscationMenuItem.addActionListener(e -> toggleZkmDeobfuscation(zkmDeobfuscationMenuItem.isSelected()));
+        settingsMenu.add(zkmDeobfuscationMenuItem);
         
         // help menu
         var helpMenu = new JMenu("Help");
@@ -313,8 +338,7 @@ worker.execute();
         dialog.setLayout(new BorderLayout());
         dialog.setSize(500, 300);
         dialog.setLocationRelativeTo(frame);
-        
-        // styled text pane
+
         JEditorPane creditsPane = new JEditorPane();
         creditsPane.setContentType("text/html");
         creditsPane.setEditable(false);
@@ -324,11 +348,11 @@ worker.execute();
         String creditsText = "<html><body style='text-align: center; font-family: Arial; margin: 20px;'>" +
                 "<h2>The Sulfur Project</h2>" +
                 "<p>Developed by k0nnect</p>" +
-                "<p>Visit the project repository on GitHub!:</p>" +
+                "<p>Visit the project on GitHub:</p>" +
                 "<p><a href='https://github.com/k0nnect/sulfur'>https://github.com/k0nnect/sulfur</a></p>" +
                 "</body></html>";
         creditsPane.setText(creditsText);
-        
+
         // impl: hyperlink listener to open the url in ur browser
         creditsPane.addHyperlinkListener(e -> {
             if (e.getEventType() == javax.swing.event.HyperlinkEvent.EventType.ACTIVATED) {
@@ -336,8 +360,8 @@ worker.execute();
                     Desktop.getDesktop().browse(e.getURL().toURI());
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(dialog, 
-                        "[!] Error opening the URL: " + ex.getMessage(),
-                        "Error", JOptionPane.ERROR_MESSAGE);
+                        "[!] Error opening URL: " + ex.getMessage(),
+                        "[!] Error", JOptionPane.ERROR_MESSAGE);
                 }
             }
         });
@@ -350,6 +374,7 @@ worker.execute();
 
         dialog.add(new JScrollPane(creditsPane), BorderLayout.CENTER);
         dialog.add(buttonPanel, BorderLayout.SOUTH);
+
         dialog.setVisible(true);
             }
 }
