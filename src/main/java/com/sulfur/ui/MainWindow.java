@@ -10,6 +10,7 @@ import com.sulfur.ui.theme.ThemeManager;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.event.HyperlinkEvent;
 import javax.swing.text.DefaultHighlighter;
 import javax.swing.text.Highlighter;
 import javax.swing.text.StyledDocument;
@@ -20,9 +21,11 @@ import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.ActionEvent;
+import java.awt.Desktop;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.*;
@@ -265,7 +268,17 @@ worker.execute();
         darkThemeMenuItem.addActionListener(e -> toggleDarkTheme());
         settingsMenu.add(darkThemeMenuItem);
         
+        // help menu
+        var helpMenu = new JMenu("Help");
+        helpMenu.add(new AbstractAction("Credits") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                showCredits();
+            }
+        });
+        
         menuBar.add(settingsMenu);
+        menuBar.add(helpMenu);
         frame.setJMenuBar(menuBar);
 
         var left = new JPanel(new BorderLayout());
@@ -295,4 +308,48 @@ worker.execute();
 
         frame.setVisible(true);
     }
+            private void showCredits() {
+        JDialog dialog = new JDialog(frame, "Credits", true);
+        dialog.setLayout(new BorderLayout());
+        dialog.setSize(500, 300);
+        dialog.setLocationRelativeTo(frame);
+        
+        // styled text pane
+        JEditorPane creditsPane = new JEditorPane();
+        creditsPane.setContentType("text/html");
+        creditsPane.setEditable(false);
+        creditsPane.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true);
+        
+        // HTML formatting
+        String creditsText = "<html><body style='text-align: center; font-family: Arial; margin: 20px;'>" +
+                "<h2>The Sulfur Project</h2>" +
+                "<p>Developed by k0nnect</p>" +
+                "<p>Visit the project repository on GitHub!:</p>" +
+                "<p><a href='https://github.com/k0nnect/sulfur'>https://github.com/k0nnect/sulfur</a></p>" +
+                "</body></html>";
+        creditsPane.setText(creditsText);
+        
+        // impl: hyperlink listener to open the url in ur browser
+        creditsPane.addHyperlinkListener(e -> {
+            if (e.getEventType() == javax.swing.event.HyperlinkEvent.EventType.ACTIVATED) {
+                try {
+                    Desktop.getDesktop().browse(e.getURL().toURI());
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(dialog, 
+                        "[!] Error opening the URL: " + ex.getMessage(),
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        });
+        
+        // close button
+        JButton closeButton = new JButton("Close");
+        closeButton.addActionListener(e -> dialog.dispose());
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.add(closeButton);
+
+        dialog.add(new JScrollPane(creditsPane), BorderLayout.CENTER);
+        dialog.add(buttonPanel, BorderLayout.SOUTH);
+        dialog.setVisible(true);
+            }
 }
