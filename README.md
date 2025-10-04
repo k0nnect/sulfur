@@ -1,6 +1,6 @@
 # 🧪 Sulfur
 
-Sulfur is a new fast, lightweight, open-source **.JAR file decompiler and bytecode viewer** built in Java with a Swing UI. 
+Sulfur is a new, fast, lightweight, open-source **.JAR file decompiler and bytecode viewer** built in Java with a Swing UI. 
 
 Think of it as a simpler [Recaf](https://github.com/Col-E/Recaf)/[Jbytedit](https://github.com/Eyremba/JBytedit) — drop in any .JAR file and instantly browse its classes, view **decompiled Java** (Procyon or CFR) and **readable bytecode** (ASM Textifier).
 
