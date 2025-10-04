@@ -11,11 +11,7 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.HyperlinkEvent;
-import javax.swing.text.DefaultHighlighter;
-import javax.swing.text.Highlighter;
-import javax.swing.text.StyledDocument;
-import javax.swing.text.DefaultStyledDocument;
-import javax.swing.text.StyleContext;
+import javax.swing.text.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
@@ -29,6 +25,8 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class MainWindow {
     private JFrame frame;
@@ -40,6 +38,7 @@ public class MainWindow {
     private JCheckBoxMenuItem useCfrMenuItem;
     private JCheckBoxMenuItem darkThemeMenuItem;
     private JCheckBoxMenuItem zkmDeobfuscationMenuItem;
+    private JCheckBoxMenuItem allatoriDeobfuscationMenuItem;
 
     private JarIndex index;
     private File currentJar;
@@ -170,8 +169,18 @@ worker.execute();
                 bytecodeArea.setText(Disassembler.disassemble(index, className));
                 
                 String statusMessage = "[!] Decompiled: " + className;
-                if (settings.isZkmDeobfuscation()) {
-                    statusMessage += " (with ZKM deobfuscation)";
+                if (settings.isZkmDeobfuscation() || settings.isAllatoriDeobfuscation()) {
+                    statusMessage += " (with";
+                    if (settings.isZkmDeobfuscation()) {
+                        statusMessage += " ZKM";
+                    }
+                    if (settings.isZkmDeobfuscation() && settings.isAllatoriDeobfuscation()) {
+                        statusMessage += " &";
+                    }
+                    if (settings.isAllatoriDeobfuscation()) {
+                        statusMessage += " Allatori";
+                    }
+                    statusMessage += " deobfuscation)";
                 }
                 statusBar.setText(statusMessage);
             } catch (Exception ex) {
@@ -240,6 +249,19 @@ worker.execute();
         String status = enabled ? "enabled" : "disabled";
         statusBar.setText("[!] ZKM string deobfuscation " + status);
     }
+            
+            private void toggleAllatoriDeobfuscation(boolean enabled) {
+        settings.setAllatoriDeobfuscation(enabled);
+        settings.saveSettings();
+        
+        // if a class is already decompiled, refresh it to apply/remove allatori deobfuscation
+        if (currentClass != null && !currentClass.isEmpty()) {
+            decompileSelectedClass();
+        }
+        
+        String status = enabled ? "enabled" : "disabled";
+        statusBar.setText("[!] Sulfur - Allatori string deobfuscation " + status);
+            }
 
     private void init() {
         settings = AppSettings.loadSettings();
@@ -249,6 +271,14 @@ worker.execute();
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setSize(1200, 800);
 
+        // gengar logo ;)
+        try {
+            ImageIcon icon = new ImageIcon(getClass().getResource("/gengar.png"));
+            frame.setIconImage(icon.getImage());
+        } catch (Exception e) {
+            System.err.println("[!] Failed to load application icon: " + e.getMessage());
+        }
+    
         themeManager.applyTheme(settings.isDarkTheme());
 
         var menuBar = new JMenuBar();
@@ -277,6 +307,16 @@ worker.execute();
         });
         menuBar.add(fileMenu);
 
+        // [~] impl: add edit menu
+        var editMenu = new JMenu("Edit");
+        editMenu.add(new AbstractAction("Find & Replace") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                showFindReplaceDialog();
+            }
+        });
+        menuBar.add(editMenu);
+        
         var settingsMenu = new JMenu("Settings");
         useCfrMenuItem = new JCheckBoxMenuItem("Use CFR 0.152 decompiler", settings.isUseCfrDecompiler());
         useCfrMenuItem.addActionListener(e -> toggleDecompilerBackend());
@@ -292,6 +332,12 @@ worker.execute();
                 settings.isZkmDeobfuscation());
         zkmDeobfuscationMenuItem.addActionListener(e -> toggleZkmDeobfuscation(zkmDeobfuscationMenuItem.isSelected()));
         settingsMenu.add(zkmDeobfuscationMenuItem);
+        
+        allatoriDeobfuscationMenuItem = new JCheckBoxMenuItem("Allatori String Deobfuscation", 
+                settings.isAllatoriDeobfuscation());
+        allatoriDeobfuscationMenuItem.addActionListener(e -> 
+                toggleAllatoriDeobfuscation(allatoriDeobfuscationMenuItem.isSelected()));
+        settingsMenu.add(allatoriDeobfuscationMenuItem);
         
         // help menu
         var helpMenu = new JMenu("Help");
@@ -333,6 +379,277 @@ worker.execute();
 
         frame.setVisible(true);
     }
+            private void showFindReplaceDialog() {
+                JDialog dialog = new JDialog(frame, "Sulfur - Find & Replace", true);
+                dialog.setLayout(new BorderLayout());
+                dialog.setSize(500, 250);
+                dialog.setLocationRelativeTo(frame);
+                dialog.setResizable(true);
+                
+                // panels for search inputs and options
+                JPanel searchPanel = new JPanel(new GridBagLayout());
+                GridBagConstraints gbc = new GridBagConstraints();
+                gbc.insets = new Insets(5, 5, 5, 5);
+                gbc.fill = GridBagConstraints.HORIZONTAL;
+                
+                // find field
+                gbc.gridx = 0;
+                gbc.gridy = 0;
+                gbc.weightx = 0;
+                searchPanel.add(new JLabel("Find:"), gbc);
+                
+                JTextField findField = new JTextField(20);
+                gbc.gridx = 1;
+                gbc.weightx = 1;
+                searchPanel.add(findField, gbc);
+                
+                // replace field
+                gbc.gridx = 0;
+                gbc.gridy = 1;
+                gbc.weightx = 0;
+                searchPanel.add(new JLabel("Replace with:"), gbc);
+                
+                JTextField replaceField = new JTextField(20);
+                gbc.gridx = 1;
+                gbc.weightx = 1;
+                searchPanel.add(replaceField, gbc);
+                
+                // options panel
+                JPanel optionsPanel = new JPanel();
+                JCheckBox matchCaseCheckBox = new JCheckBox("Match case");
+                JCheckBox wholeWordCheckBox = new JCheckBox("Whole word");
+                JCheckBox regexCheckBox = new JCheckBox("Use regex");
+                
+                optionsPanel.add(matchCaseCheckBox);
+                optionsPanel.add(wholeWordCheckBox);
+                optionsPanel.add(regexCheckBox);
+                
+                // add options panel to search panel
+                gbc.gridx = 0;
+                gbc.gridy = 2;
+                gbc.gridwidth = 2;
+                searchPanel.add(optionsPanel, gbc);
+                
+                // make buttons panel
+                JPanel buttonPanel = new JPanel();
+                JButton findButton = new JButton("Find");
+                JButton replaceButton = new JButton("Replace");
+                JButton replaceAllButton = new JButton("Replace All");
+                JButton closeButton = new JButton("Close");
+                
+                buttonPanel.add(findButton);
+                buttonPanel.add(replaceButton);
+                buttonPanel.add(replaceAllButton);
+                buttonPanel.add(closeButton);
+                
+                // status label
+                JLabel statusLabel = new JLabel(" ");
+                statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+
+                dialog.add(searchPanel, BorderLayout.NORTH);
+                dialog.add(statusLabel, BorderLayout.CENTER);
+                dialog.add(buttonPanel, BorderLayout.SOUTH);
+                
+                // focus on find field initially
+                findField.requestFocus();
+                
+                // handle thr close button (hope this works lol)
+                closeButton.addActionListener(e -> dialog.dispose());
+                
+                // find button
+                findButton.addActionListener(e -> {
+                    if (findField.getText().isEmpty()) {
+                        statusLabel.setText("[!] Please enter a search term");
+                        return;
+                    }
+                    
+                    String text = outputArea.getText();
+                    String searchTerm = findField.getText();
+                    boolean matchCase = matchCaseCheckBox.isSelected();
+                    boolean wholeWord = wholeWordCheckBox.isSelected();
+                    boolean useRegex = regexCheckBox.isSelected();
+                    
+                    int[] result = findInText(text, searchTerm, matchCase, wholeWord, useRegex);
+                    if (result != null) {
+                        outputArea.setCaretPosition(result[0]);
+                        outputArea.select(result[0], result[1]);
+                        outputArea.requestFocus();
+                        statusLabel.setText("[!] sulfur: Found match at position " + result[0]);
+                    } else {
+                        statusLabel.setText("[!] sulfur: No matches found");
+                    }
+                });
+                
+                // replace button
+                replaceButton.addActionListener(e -> {
+                    if (findField.getText().isEmpty()) {
+                        statusLabel.setText("[!] sulfur: Please enter a search term");
+                        return;
+                    }
+                    
+                    String text = outputArea.getText();
+                    String searchTerm = findField.getText();
+                    String replacement = replaceField.getText();
+                    boolean matchCase = matchCaseCheckBox.isSelected();
+                    boolean wholeWord = wholeWordCheckBox.isSelected();
+                    boolean useRegex = regexCheckBox.isSelected();
+                    
+                    int[] result = findInText(text, searchTerm, matchCase, wholeWord, useRegex);
+                    if (result != null) {
+                        try {
+                            outputArea.getDocument().remove(result[0], result[1] - result[0]);
+                        } catch (BadLocationException ex) {
+                            throw new RuntimeException(ex);
+                        }
+                        try {
+                            outputArea.getDocument().insertString(result[0], replacement, null);
+                        } catch (BadLocationException ex) {
+                            throw new RuntimeException(ex);
+                        }
+                        statusLabel.setText("[!] sulfur: Replaced 1 occurrence");
+                    } else {
+                        statusLabel.setText("[!] sulfur: No matches found");
+                    }
+                });
+                
+                // replace all button
+                replaceAllButton.addActionListener(e -> {
+                    if (findField.getText().isEmpty()) {
+                        statusLabel.setText("[!] sulfur: Please enter a search term");
+                        return;
+                    }
+                    
+                    String text = outputArea.getText();
+                    String searchTerm = findField.getText();
+                    String replacement = replaceField.getText();
+                    boolean matchCase = matchCaseCheckBox.isSelected();
+                    boolean wholeWord = wholeWordCheckBox.isSelected();
+                    boolean useRegex = regexCheckBox.isSelected();
+                    
+                    int count = replaceAllInText(text, searchTerm, replacement, matchCase, wholeWord, useRegex);
+                    statusLabel.setText("[!] sulfur: Replaced " + count + " occurrences");
+                });
+                
+                dialog.setVisible(true);
+            }
+            
+            private int[] findInText(String text, String searchTerm, boolean matchCase, boolean wholeWord, boolean useRegex) {
+                if (!matchCase) {
+                    text = text.toLowerCase();
+                    searchTerm = searchTerm.toLowerCase();
+                }
+                
+                if (useRegex) {
+                    Pattern pattern;
+                    try {
+                        if (wholeWord) {
+                            pattern = Pattern.compile("\\b" + searchTerm + "\\b", 
+                                    matchCase ? 0 : Pattern.CASE_INSENSITIVE);
+                        } else {
+                            pattern = Pattern.compile(searchTerm, matchCase ? 0 : Pattern.CASE_INSENSITIVE);
+                        }
+                        Matcher matcher = pattern.matcher(text);
+                        if (matcher.find()) {
+                            return new int[] { matcher.start(), matcher.end() };
+                        }
+                    } catch (Exception e) {
+                        // invalid regex
+                        return null;
+                    }
+                } else {
+                    if (wholeWord) {
+                        searchTerm = "\\b" + Pattern.quote(searchTerm) + "\\b";
+                        Pattern pattern = Pattern.compile(searchTerm, matchCase ? 0 : Pattern.CASE_INSENSITIVE);
+                        Matcher matcher = pattern.matcher(text);
+                        if (matcher.find()) {
+                            return new int[] { matcher.start(), matcher.end() };
+                        }
+                    } else {
+                        int index = text.indexOf(searchTerm);
+                        if (index >= 0) {
+                            return new int[] { index, index + searchTerm.length() };
+                        }
+                    }
+                }
+                
+                return null;
+            }
+            
+            private int replaceAllInText(String text, String searchTerm, String replacement, 
+                                       boolean matchCase, boolean wholeWord, boolean useRegex) {
+                String original = outputArea.getText();
+                String result;
+                int count = 0;
+                
+                if (useRegex) {
+                    try {
+                        Pattern pattern;
+                        if (wholeWord) {
+                            pattern = Pattern.compile("\\b" + searchTerm + "\\b", 
+                                    matchCase ? 0 : Pattern.CASE_INSENSITIVE);
+                        } else {
+                            pattern = Pattern.compile(searchTerm, matchCase ? 0 : Pattern.CASE_INSENSITIVE);
+                        }
+                        
+                        Matcher matcher = pattern.matcher(original);
+                        result = matcher.replaceAll(replacement);
+                        count = (int) matcher.results().count();
+                    } catch (Exception e) {
+                        // Invalid regex
+                        return 0;
+                    }
+                } else {
+                    if (wholeWord) {
+                        Pattern pattern = Pattern.compile("\\b" + Pattern.quote(searchTerm) + "\\b", 
+                                matchCase ? 0 : Pattern.CASE_INSENSITIVE);
+                        Matcher matcher = pattern.matcher(original);
+                        StringBuffer sb = new StringBuffer();
+                        while (matcher.find()) {
+                            matcher.appendReplacement(sb, replacement);
+                            count++;
+                        }
+                        matcher.appendTail(sb);
+                        result = sb.toString();
+                    } else {
+                        if (!matchCase) {
+                            // for case-insensitive non-regex replacement u need to manually find and replace
+                            StringBuffer sb = new StringBuffer();
+                            String lowerText = original.toLowerCase();
+                            String lowerSearchTerm = searchTerm.toLowerCase();
+                            int lastIndex = 0;
+                            int index;
+                            
+                            while ((index = lowerText.indexOf(lowerSearchTerm, lastIndex)) != -1) {
+                                sb.append(original, lastIndex, index);
+                                sb.append(replacement);
+                                lastIndex = index + searchTerm.length();
+                                count++;
+                            }
+                            
+                            sb.append(original.substring(lastIndex));
+                            result = sb.toString();
+                        } else {
+                            // simple case-sensitive replace
+                            result = original.replace(searchTerm, replacement);
+                            // count occurrences
+                            count = (original.length() - result.length()) / (searchTerm.length() - replacement.length());
+                            if (searchTerm.length() == replacement.length()) {
+                                // can't count by length difference so count manually
+                                int fromIndex = 0;
+                                count = 0;
+                                while ((fromIndex = original.indexOf(searchTerm, fromIndex)) >= 0) {
+                                    count++;
+                                    fromIndex += searchTerm.length();
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                outputArea.setText(result);
+                return count;
+            }
+            
             private void showCredits() {
         JDialog dialog = new JDialog(frame, "Credits", true);
         dialog.setLayout(new BorderLayout());
@@ -348,7 +665,7 @@ worker.execute();
         String creditsText = "<html><body style='text-align: center; font-family: Arial; margin: 20px;'>" +
                 "<h2>The Sulfur Project</h2>" +
                 "<p>Developed by k0nnect</p>" +
-                "<p>Visit the project on GitHub:</p>" +
+                "<p>Visit the project repository on GitHub!:</p>" +
                 "<p><a href='https://github.com/k0nnect/sulfur'>https://github.com/k0nnect/sulfur</a></p>" +
                 "</body></html>";
         creditsPane.setText(creditsText);
@@ -360,7 +677,7 @@ worker.execute();
                     Desktop.getDesktop().browse(e.getURL().toURI());
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(dialog, 
-                        "[!] Error opening URL: " + ex.getMessage(),
+                        "[!] Error opening the URL: " + ex.getMessage(),
                         "[!] Error", JOptionPane.ERROR_MESSAGE);
                 }
             }

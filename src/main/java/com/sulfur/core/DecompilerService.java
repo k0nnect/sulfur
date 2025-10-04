@@ -39,6 +39,7 @@ import com.strobel.decompiler.PlainTextOutput;
 import com.strobel.decompiler.languages.java.JavaFormattingOptions;
 
 import com.sulfur.config.AppSettings;
+import com.sulfur.core.deobfuscator.AllatoriDeobfuscator;
 import com.sulfur.core.deobfuscator.ZKMDeobfuscator;
 import org.benf.cfr.reader.api.CfrDriver;
 import org.benf.cfr.reader.api.OutputSinkFactory;
@@ -54,6 +55,7 @@ import java.util.Map;
 public class DecompilerService {
     
     private static final ZKMDeobfuscator zkmDeobfuscator = new ZKMDeobfuscator();
+    private static final AllatoriDeobfuscator allatoriDeobfuscator = new AllatoriDeobfuscator();
     
     public static String decompile(JarIndex index, String className) throws Exception {
         return decompile(index, className, AppSettings.loadSettings());
