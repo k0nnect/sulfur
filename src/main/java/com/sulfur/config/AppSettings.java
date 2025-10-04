@@ -11,17 +11,20 @@ public class AppSettings {
     private static final String DARK_THEME_KEY = "darkTheme";
     private static final String ZKM_DEOBFUSCATION_KEY = "zkmDeobfuscation";
     private static final String ALLATORI_DEOBFUSCATION_KEY = "allatoriDeobfuscation";
+    private static final String DISCORD_RPC_KEY = "discordRichPresence";
     
     private boolean useCfrDecompiler;
     private boolean darkTheme;
     private boolean zkmDeobfuscation;
     private boolean allatoriDeobfuscation;
+    private boolean discordRichPresence;
     
     public AppSettings() {
         this.useCfrDecompiler = false;
         this.darkTheme = false;
         this.zkmDeobfuscation = false;
         this.allatoriDeobfuscation = false;
+        this.discordRichPresence = true; // Enabled by default
     }
     
     public static AppSettings loadSettings() {
@@ -37,6 +40,7 @@ public class AppSettings {
                     settings.darkTheme = Boolean.parseBoolean(props.getProperty(DARK_THEME_KEY, "false"));
                     settings.zkmDeobfuscation = Boolean.parseBoolean(props.getProperty(ZKM_DEOBFUSCATION_KEY, "false"));
                     settings.allatoriDeobfuscation = Boolean.parseBoolean(props.getProperty(ALLATORI_DEOBFUSCATION_KEY, "false"));
+                    settings.discordRichPresence = Boolean.parseBoolean(props.getProperty(DISCORD_RPC_KEY, "true"));
                 }
             }
         } catch (Exception e) {
@@ -52,6 +56,7 @@ public class AppSettings {
         props.setProperty(DARK_THEME_KEY, Boolean.toString(darkTheme));
         props.setProperty(ZKM_DEOBFUSCATION_KEY, Boolean.toString(zkmDeobfuscation));
         props.setProperty(ALLATORI_DEOBFUSCATION_KEY, Boolean.toString(allatoriDeobfuscation));
+        props.setProperty(DISCORD_RPC_KEY, Boolean.toString(discordRichPresence));
         
         try (FileOutputStream out = new FileOutputStream(SETTINGS_FILE)) {
             props.store(out, "Sulfur Decompiler Settings");
@@ -90,5 +95,13 @@ public class AppSettings {
     
     public void setAllatoriDeobfuscation(boolean allatoriDeobfuscation) {
         this.allatoriDeobfuscation = allatoriDeobfuscation;
+    }
+    
+    public boolean isDiscordRichPresence() {
+        return discordRichPresence;
+    }
+    
+    public void setDiscordRichPresence(boolean discordRichPresence) {
+        this.discordRichPresence = discordRichPresence;
     }
 }

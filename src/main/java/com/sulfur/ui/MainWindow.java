@@ -8,22 +8,15 @@ import com.sulfur.config.AppSettings;
 import com.sulfur.ui.theme.ThemeManager;
 
 import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.event.HyperlinkEvent;
 import javax.swing.text.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
-import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.Desktop;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.net.URI;
-import java.nio.file.Path;
-import java.util.List;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -39,12 +32,14 @@ public class MainWindow {
     private JCheckBoxMenuItem darkThemeMenuItem;
     private JCheckBoxMenuItem zkmDeobfuscationMenuItem;
     private JCheckBoxMenuItem allatoriDeobfuscationMenuItem;
+    private JCheckBoxMenuItem discordRpcMenuItem;
 
     private JarIndex index;
     private File currentJar;
     private String currentClass;
     private AppSettings settings;
     private ThemeManager themeManager;
+    private com.sulfur.rpc.DiscordService discordService;
 
     public static void launch() {
         SwingUtilities.invokeLater(() -> new MainWindow().init());
@@ -99,6 +94,10 @@ SwingWorker<JarIndex, Void> worker = new SwingWorker<>() {
             index = get();
             updateClassTree();
             statusBar.setText("[!] Loaded: " + currentJar.getName());
+
+            if (settings.isDiscordRichPresence()) {
+                discordService.setCurrentJar(currentJar.getName());
+            }
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(frame, "[!] Error opening .jar file: " + ex.getMessage(),
                     "[!] Error", JOptionPane.ERROR_MESSAGE);
@@ -183,10 +182,39 @@ worker.execute();
                     statusMessage += " deobfuscation)";
                 }
                 statusBar.setText(statusMessage);
+                
+                // class name and decompiler
+                if (settings.isDiscordRichPresence()) {
+                    discordService.setCurrentClass(className);
+                    discordService.setDecompilerBackend(settings.isUseCfrDecompiler() ? "CFR" : "Procyon");
+                }
             } catch (Exception ex) {
                 outputArea.setText("[!] Failed to decompile: " + ex.getMessage());
                 statusBar.setText("[!] Error decompiling: " + className);
             }
+        }
+    }
+    
+    private void toggleDiscordRpc(boolean enabled) {
+        settings.setDiscordRichPresence(enabled);
+        settings.saveSettings();
+        
+        if (enabled) {
+            discordService.enable();
+            
+            // current state
+            if (currentJar != null) {
+                discordService.setCurrentJar(currentJar.getName());
+            }
+            if (currentClass != null && !currentClass.isEmpty()) {
+                discordService.setCurrentClass(currentClass);
+            }
+            discordService.setDecompilerBackend(settings.isUseCfrDecompiler() ? "CFR" : "Procyon");
+            
+            statusBar.setText("[!] Discord Rich Presence enabled");
+        } else {
+            discordService.disable();
+            statusBar.setText("[!] Discord Rich Presence disabled");
         }
     }
 
@@ -226,6 +254,12 @@ worker.execute();
     private void toggleDecompilerBackend() {
         settings.setUseCfrDecompiler(useCfrMenuItem.isSelected());
         settings.saveSettings();
+        
+        //decompiler backend
+        if (settings.isDiscordRichPresence()) {
+            discordService.setDecompilerBackend(settings.isUseCfrDecompiler() ? "CFR" : "Procyon");
+        }
+        
         if (currentClass != null && !currentClass.isEmpty()) {
             decompileSelectedClass();
         }
@@ -266,6 +300,13 @@ worker.execute();
     private void init() {
         settings = AppSettings.loadSettings();
         themeManager = new ThemeManager();
+        discordService = com.sulfur.rpc.DiscordService.getInstance();
+        
+        // initialize Discord RPC if enabled in settings
+        if (settings.isDiscordRichPresence()) {
+            discordService.initialize();
+            discordService.enable();
+        }
         
         frame = new JFrame("Sulfur");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -302,6 +343,9 @@ worker.execute();
         fileMenu.add(new AbstractAction("Exit") {
             @Override
             public void actionPerformed(ActionEvent e) {
+                if (settings.isDiscordRichPresence() && discordService != null) {
+                    discordService.shutdown();
+                }
                 frame.dispose();
             }
         });
@@ -338,6 +382,14 @@ worker.execute();
         allatoriDeobfuscationMenuItem.addActionListener(e -> 
                 toggleAllatoriDeobfuscation(allatoriDeobfuscationMenuItem.isSelected()));
         settingsMenu.add(allatoriDeobfuscationMenuItem);
+        
+        settingsMenu.addSeparator();
+        
+        discordRpcMenuItem = new JCheckBoxMenuItem("Discord Rich Presence", 
+                settings.isDiscordRichPresence());
+        discordRpcMenuItem.addActionListener(e -> 
+                toggleDiscordRpc(discordRpcMenuItem.isSelected()));
+        settingsMenu.add(discordRpcMenuItem);
         
         // help menu
         var helpMenu = new JMenu("Help");
@@ -595,7 +647,7 @@ worker.execute();
                         result = matcher.replaceAll(replacement);
                         count = (int) matcher.results().count();
                     } catch (Exception e) {
-                        // Invalid regex
+                        // invalid regex
                         return 0;
                     }
                 } else {
