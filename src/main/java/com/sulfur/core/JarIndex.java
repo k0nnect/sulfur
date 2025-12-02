@@ -16,6 +16,7 @@ import java.util.jar.JarFile;
         private final Path jarPath;
         private final Map<String, String> classToEntry = new HashMap<>();
         private final Map<String, byte[]> classCache = new HashMap<>();
+        private final Map<String, String> decompiledCodeCache = new HashMap<>();
     
         private JarIndex(Path jar) {
             this.jarPath = jar;
@@ -78,6 +79,14 @@ import java.util.jar.JarFile;
         
         public Path getJarPath() {
             return jarPath;
+        }
+
+        public void putDecompiledCode(String className, String decompiledCode) {
+            this.decompiledCodeCache.put(className, decompiledCode);
+        }
+
+        public String getDecompiledCode(String className) {
+            return this.decompiledCodeCache.get(className);
         }
 
         public InputStream openClass(String fqcn) throws IOException {

@@ -70,6 +70,7 @@ public class DecompilerService {
             decompiled = zkmDeobfuscator.process(decompiled);
         }
         
+        index.putDecompiledCode(className, decompiled);
         return decompiled;
     }
     
@@ -116,6 +117,7 @@ public class DecompilerService {
             decompiled = zkmDeobfuscator.process(decompiled);
         }
         
+        index.putDecompiledCode(className, decompiled);
         return decompiled;
     }
     

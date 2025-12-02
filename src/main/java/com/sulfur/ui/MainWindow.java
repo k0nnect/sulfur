@@ -3,9 +3,11 @@ package com.sulfur.ui;
 import com.sulfur.core.DecompilerService;
 import com.sulfur.core.Disassembler;
 import com.sulfur.core.JarIndex;
+import com.sulfur.core.UsageAnalyzer;
 import com.sulfur.util.SwingUtil;
 import com.sulfur.config.AppSettings;
 import com.sulfur.ui.theme.ThemeManager;
+import com.sulfur.ui.theme.ThemeManager.Theme;
 
 import javax.swing.*;
 import javax.swing.text.*;
@@ -29,16 +31,21 @@ public class MainWindow {
     private JTextField searchField;
     private JTabbedPane tabs;
     private JCheckBoxMenuItem useCfrMenuItem;
-    private JCheckBoxMenuItem darkThemeMenuItem;
+    private JRadioButtonMenuItem lightThemeMenuItem;
+    private JRadioButtonMenuItem darkThemeMenuItem;
     private JCheckBoxMenuItem zkmDeobfuscationMenuItem;
     private JCheckBoxMenuItem allatoriDeobfuscationMenuItem;
     private JCheckBoxMenuItem discordRpcMenuItem;
+
+    private JPopupMenu outputAreaPopupMenu;
+
+    private UsageAnalyzer usageAnalyzer;
+    private UsageResultsPanel usageResultsPanel;
 
     private JarIndex index;
     private File currentJar;
     private String currentClass;
     private AppSettings settings;
-    private ThemeManager themeManager;
     private com.sulfur.rpc.DiscordService discordService;
 
     public static void launch() {
@@ -98,6 +105,8 @@ SwingWorker<JarIndex, Void> worker = new SwingWorker<>() {
             if (settings.isDiscordRichPresence()) {
                 discordService.setCurrentJar(currentJar.getName());
             }
+            // initialize usageAnalyzer after index is set
+            usageAnalyzer = new UsageAnalyzer(index);
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(frame, "[!] Error opening .jar file: " + ex.getMessage(),
                     "[!] Error", JOptionPane.ERROR_MESSAGE);
@@ -183,7 +192,6 @@ worker.execute();
                 }
                 statusBar.setText(statusMessage);
                 
-                // class name and decompiler
                 if (settings.isDiscordRichPresence()) {
                     discordService.setCurrentClass(className);
                     discordService.setDecompilerBackend(settings.isUseCfrDecompiler() ? "CFR" : "Procyon");
@@ -202,7 +210,6 @@ worker.execute();
         if (enabled) {
             discordService.enable();
             
-            // current state
             if (currentJar != null) {
                 discordService.setCurrentJar(currentJar.getName());
             }
@@ -255,7 +262,6 @@ worker.execute();
         settings.setUseCfrDecompiler(useCfrMenuItem.isSelected());
         settings.saveSettings();
         
-        //decompiler backend
         if (settings.isDiscordRichPresence()) {
             discordService.setDecompilerBackend(settings.isUseCfrDecompiler() ? "CFR" : "Procyon");
         }
@@ -265,17 +271,10 @@ worker.execute();
         }
     }
     
-    private void toggleDarkTheme() {
-        settings.setDarkTheme(darkThemeMenuItem.isSelected());
-        settings.saveSettings();
-        themeManager.applyTheme(darkThemeMenuItem.isSelected());
-    }
-    
     private void toggleZkmDeobfuscation(boolean enabled) {
         settings.setZkmDeobfuscation(enabled);
         settings.saveSettings();
         
-        // if a class is already decompiled, then refresh it to apply/remove ZKM deobf
         if (currentClass != null && !currentClass.isEmpty()) {
             decompileSelectedClass();
         }
@@ -288,7 +287,6 @@ worker.execute();
         settings.setAllatoriDeobfuscation(enabled);
         settings.saveSettings();
         
-        // if a class is already decompiled, refresh it to apply/remove allatori deobfuscation
         if (currentClass != null && !currentClass.isEmpty()) {
             decompileSelectedClass();
         }
@@ -299,10 +297,8 @@ worker.execute();
 
     private void init() {
         settings = AppSettings.loadSettings();
-        themeManager = new ThemeManager();
         discordService = com.sulfur.rpc.DiscordService.getInstance();
         
-        // initialize Discord RPC if enabled in settings
         if (settings.isDiscordRichPresence()) {
             discordService.initialize();
             discordService.enable();
@@ -312,7 +308,6 @@ worker.execute();
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setSize(1200, 800);
 
-        // gengar logo ;)
         try {
             ImageIcon icon = new ImageIcon(getClass().getResource("/gengar.png"));
             frame.setIconImage(icon.getImage());
@@ -320,7 +315,9 @@ worker.execute();
             System.err.println("[!] Failed to load application icon: " + e.getMessage());
         }
     
-        themeManager.applyTheme(settings.isDarkTheme());
+        ThemeManager.applyTheme(settings.getTheme());
+
+        // usageAnalyzer is now initialized in onOpenJar() after index is loaded
 
         var menuBar = new JMenuBar();
 
@@ -351,7 +348,6 @@ worker.execute();
         });
         menuBar.add(fileMenu);
 
-        // [~] impl: add edit menu
         var editMenu = new JMenu("Edit");
         editMenu.add(new AbstractAction("Find & Replace") {
             @Override
@@ -365,33 +361,52 @@ worker.execute();
         useCfrMenuItem = new JCheckBoxMenuItem("Use CFR 0.152 decompiler", settings.isUseCfrDecompiler());
         useCfrMenuItem.addActionListener(e -> toggleDecompilerBackend());
         settingsMenu.add(useCfrMenuItem);
-        
-        darkThemeMenuItem = new JCheckBoxMenuItem("Dark Theme", settings.isDarkTheme());
-        darkThemeMenuItem.addActionListener(e -> toggleDarkTheme());
-        settingsMenu.add(darkThemeMenuItem);
-        
+
         settingsMenu.addSeparator();
-        
-        zkmDeobfuscationMenuItem = new JCheckBoxMenuItem("ZKM String Deobfuscation", 
+
+        var themeMenu = new JMenu("Theme");
+        ButtonGroup themeGroup = new ButtonGroup();
+
+        lightThemeMenuItem = new JRadioButtonMenuItem("Light Theme", settings.getTheme() == Theme.LIGHT);
+        lightThemeMenuItem.addActionListener(e -> {
+            settings.setTheme(Theme.LIGHT);
+            settings.saveSettings();
+            ThemeManager.applyTheme(Theme.LIGHT);
+        });
+        themeGroup.add(lightThemeMenuItem);
+        themeMenu.add(lightThemeMenuItem);
+
+        darkThemeMenuItem = new JRadioButtonMenuItem("Dark Theme", settings.getTheme() == Theme.DARK);
+        darkThemeMenuItem.addActionListener(e -> {
+            settings.setTheme(Theme.DARK);
+            settings.saveSettings();
+            ThemeManager.applyTheme(Theme.DARK);
+        });
+        themeGroup.add(darkThemeMenuItem);
+        themeMenu.add(darkThemeMenuItem);
+        settingsMenu.add(themeMenu);
+
+        settingsMenu.addSeparator();
+
+        zkmDeobfuscationMenuItem = new JCheckBoxMenuItem("ZKM String Deobfuscation",
                 settings.isZkmDeobfuscation());
         zkmDeobfuscationMenuItem.addActionListener(e -> toggleZkmDeobfuscation(zkmDeobfuscationMenuItem.isSelected()));
         settingsMenu.add(zkmDeobfuscationMenuItem);
-        
-        allatoriDeobfuscationMenuItem = new JCheckBoxMenuItem("Allatori String Deobfuscation", 
+
+        allatoriDeobfuscationMenuItem = new JCheckBoxMenuItem("Allatori String Deobfuscation",
                 settings.isAllatoriDeobfuscation());
-        allatoriDeobfuscationMenuItem.addActionListener(e -> 
+        allatoriDeobfuscationMenuItem.addActionListener(e ->
                 toggleAllatoriDeobfuscation(allatoriDeobfuscationMenuItem.isSelected()));
         settingsMenu.add(allatoriDeobfuscationMenuItem);
-        
+
         settingsMenu.addSeparator();
-        
-        discordRpcMenuItem = new JCheckBoxMenuItem("Discord Rich Presence", 
+
+        discordRpcMenuItem = new JCheckBoxMenuItem("Discord Rich Presence",
                 settings.isDiscordRichPresence());
-        discordRpcMenuItem.addActionListener(e -> 
+        discordRpcMenuItem.addActionListener(e ->
                 toggleDiscordRpc(discordRpcMenuItem.isSelected()));
         settingsMenu.add(discordRpcMenuItem);
-        
-        // help menu
+
         var helpMenu = new JMenu("Help");
         helpMenu.add(new AbstractAction("Credits") {
             @Override
@@ -417,9 +432,19 @@ worker.execute();
         outputArea.setEditable(false);
         outputArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         tabs.addTab("Decompiled", new JScrollPane(outputArea));
-        
+
+        outputAreaPopupMenu = new JPopupMenu();
+        JMenuItem findUsagesMenuItem = new JMenuItem("Find Usages");
+        findUsagesMenuItem.addActionListener(e -> findUsagesInOutputArea());
+        outputAreaPopupMenu.add(findUsagesMenuItem);
+
+        outputArea.setComponentPopupMenu(outputAreaPopupMenu);
+
         var bytecodeArea = SwingUtil.monoArea();
         tabs.addTab("Bytecode", new JScrollPane(bytecodeArea));
+
+        usageResultsPanel = new UsageResultsPanel();
+        tabs.addTab("Usages", usageResultsPanel);
 
         statusBar = new JTextArea(1, 0);
         statusBar.setEditable(false);
@@ -431,20 +456,37 @@ worker.execute();
 
         frame.setVisible(true);
     }
-            private void showFindReplaceDialog() {
+
+    private void findUsagesInOutputArea() {
+        String selectedText = outputArea.getSelectedText();
+        if (selectedText == null || selectedText.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(frame, "Please select text to find usages.", "Find Usages", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        if (index == null) {
+            JOptionPane.showMessageDialog(frame, "No JAR file loaded.", "Find Usages", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        Set<String> usages = usageAnalyzer.findUsages(selectedText);
+
+        usageResultsPanel.displayUsages(usages);
+        tabs.setSelectedComponent(usageResultsPanel);
+    }
+
+    private void showFindReplaceDialog() {
                 JDialog dialog = new JDialog(frame, "Sulfur - Find & Replace", true);
                 dialog.setLayout(new BorderLayout());
                 dialog.setSize(500, 250);
                 dialog.setLocationRelativeTo(frame);
                 dialog.setResizable(true);
                 
-                // panels for search inputs and options
                 JPanel searchPanel = new JPanel(new GridBagLayout());
                 GridBagConstraints gbc = new GridBagConstraints();
                 gbc.insets = new Insets(5, 5, 5, 5);
                 gbc.fill = GridBagConstraints.HORIZONTAL;
                 
-                // find field
                 gbc.gridx = 0;
                 gbc.gridy = 0;
                 gbc.weightx = 0;
@@ -455,7 +497,6 @@ worker.execute();
                 gbc.weightx = 1;
                 searchPanel.add(findField, gbc);
                 
-                // replace field
                 gbc.gridx = 0;
                 gbc.gridy = 1;
                 gbc.weightx = 0;
@@ -466,7 +507,6 @@ worker.execute();
                 gbc.weightx = 1;
                 searchPanel.add(replaceField, gbc);
                 
-                // options panel
                 JPanel optionsPanel = new JPanel();
                 JCheckBox matchCaseCheckBox = new JCheckBox("Match case");
                 JCheckBox wholeWordCheckBox = new JCheckBox("Whole word");
@@ -476,13 +516,11 @@ worker.execute();
                 optionsPanel.add(wholeWordCheckBox);
                 optionsPanel.add(regexCheckBox);
                 
-                // add options panel to search panel
                 gbc.gridx = 0;
                 gbc.gridy = 2;
                 gbc.gridwidth = 2;
                 searchPanel.add(optionsPanel, gbc);
                 
-                // make buttons panel
                 JPanel buttonPanel = new JPanel();
                 JButton findButton = new JButton("Find");
                 JButton replaceButton = new JButton("Replace");
@@ -494,7 +532,6 @@ worker.execute();
                 buttonPanel.add(replaceAllButton);
                 buttonPanel.add(closeButton);
                 
-                // status label
                 JLabel statusLabel = new JLabel(" ");
                 statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
@@ -502,13 +539,10 @@ worker.execute();
                 dialog.add(statusLabel, BorderLayout.CENTER);
                 dialog.add(buttonPanel, BorderLayout.SOUTH);
                 
-                // focus on find field initially
                 findField.requestFocus();
                 
-                // handle thr close button (hope this works lol)
                 closeButton.addActionListener(e -> dialog.dispose());
                 
-                // find button
                 findButton.addActionListener(e -> {
                     if (findField.getText().isEmpty()) {
                         statusLabel.setText("[!] Please enter a search term");
@@ -532,7 +566,6 @@ worker.execute();
                     }
                 });
                 
-                // replace button
                 replaceButton.addActionListener(e -> {
                     if (findField.getText().isEmpty()) {
                         statusLabel.setText("[!] sulfur: Please enter a search term");
@@ -564,7 +597,6 @@ worker.execute();
                     }
                 });
                 
-                // replace all button
                 replaceAllButton.addActionListener(e -> {
                     if (findField.getText().isEmpty()) {
                         statusLabel.setText("[!] sulfur: Please enter a search term");
@@ -605,7 +637,6 @@ worker.execute();
                             return new int[] { matcher.start(), matcher.end() };
                         }
                     } catch (Exception e) {
-                        // invalid regex
                         return null;
                     }
                 } else {
@@ -647,7 +678,6 @@ worker.execute();
                         result = matcher.replaceAll(replacement);
                         count = (int) matcher.results().count();
                     } catch (Exception e) {
-                        // invalid regex
                         return 0;
                     }
                 } else {
@@ -664,7 +694,6 @@ worker.execute();
                         result = sb.toString();
                     } else {
                         if (!matchCase) {
-                            // for case-insensitive non-regex replacement u need to manually find and replace
                             StringBuffer sb = new StringBuffer();
                             String lowerText = original.toLowerCase();
                             String lowerSearchTerm = searchTerm.toLowerCase();
@@ -681,12 +710,9 @@ worker.execute();
                             sb.append(original.substring(lastIndex));
                             result = sb.toString();
                         } else {
-                            // simple case-sensitive replace
                             result = original.replace(searchTerm, replacement);
-                            // count occurrences
                             count = (original.length() - result.length()) / (searchTerm.length() - replacement.length());
                             if (searchTerm.length() == replacement.length()) {
-                                // can't count by length difference so count manually
                                 int fromIndex = 0;
                                 count = 0;
                                 while ((fromIndex = original.indexOf(searchTerm, fromIndex)) >= 0) {
@@ -713,7 +739,6 @@ worker.execute();
         creditsPane.setEditable(false);
         creditsPane.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true);
         
-        // HTML formatting
         String creditsText = "<html><body style='text-align: center; font-family: Arial; margin: 20px;'>" +
                 "<h2>The Sulfur Project</h2>" +
                 "<p>Developed by k0nnect</p>" +
@@ -722,7 +747,6 @@ worker.execute();
                 "</body></html>";
         creditsPane.setText(creditsText);
 
-        // impl: hyperlink listener to open the url in ur browser
         creditsPane.addHyperlinkListener(e -> {
             if (e.getEventType() == javax.swing.event.HyperlinkEvent.EventType.ACTIVATED) {
                 try {
@@ -735,7 +759,6 @@ worker.execute();
             }
         });
         
-        // close button
         JButton closeButton = new JButton("Close");
         closeButton.addActionListener(e -> dialog.dispose());
         JPanel buttonPanel = new JPanel();
