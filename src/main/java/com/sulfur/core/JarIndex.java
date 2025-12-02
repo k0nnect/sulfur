@@ -64,7 +64,11 @@ import java.util.jar.JarFile;
                 return bytes;
             }
         }
-        
+
+        public void putClassBytes(String className, byte[] newBytes) {
+            classCache.put(className, newBytes);
+        }
+
         private byte[] readEntryBytes(JarFile jf, JarEntry entry) throws IOException {
             try (InputStream is = jf.getInputStream(entry)) {
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -87,6 +91,44 @@ import java.util.jar.JarFile;
 
         public String getDecompiledCode(String className) {
             return this.decompiledCodeCache.get(className);
+        }
+
+        public void saveModifiedJar(Path outputPath) throws IOException {
+            try (JarFile originalJar = new JarFile(jarPath.toFile());
+                 java.util.jar.JarOutputStream jos = new java.util.jar.JarOutputStream(new java.io.FileOutputStream(outputPath.toFile()))) {
+
+                Enumeration<JarEntry> entries = originalJar.entries();
+                while (entries.hasMoreElements()) {
+                    JarEntry entry = entries.nextElement();
+                    String entryName = entry.getName();
+                    String fqcn = entryName.replace('/', '.').replaceAll("\\.class$", "");
+
+                    if (entryName.endsWith(".class") && classCache.containsKey(fqcn)) {
+                        jos.putNextEntry(new JarEntry(entryName));
+                        jos.write(classCache.get(fqcn));
+                    } else {
+                        jos.putNextEntry(new JarEntry(entryName));
+                        try (InputStream is = originalJar.getInputStream(entry)) {
+                            byte[] buffer = new byte[8192];
+                            int bytesRead;
+                            while ((bytesRead = is.read(buffer)) != -1) {
+                                jos.write(buffer, 0, bytesRead);
+                            }
+                        }
+                    }
+                    jos.closeEntry();
+                }
+
+                for (Map.Entry<String, byte[]> entry : classCache.entrySet()) {
+                    String className = entry.getKey();
+                    if (!classToEntry.containsKey(className)) {
+                        String entryName = className.replace('.', '/') + ".class";
+                        jos.putNextEntry(new JarEntry(entryName));
+                        jos.write(entry.getValue());
+                        jos.closeEntry();
+                    }
+                }
+            }
         }
 
         public InputStream openClass(String fqcn) throws IOException {

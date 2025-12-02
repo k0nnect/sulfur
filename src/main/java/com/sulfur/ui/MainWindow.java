@@ -4,6 +4,8 @@ import com.sulfur.core.DecompilerService;
 import com.sulfur.core.Disassembler;
 import com.sulfur.core.JarIndex;
 import com.sulfur.core.UsageAnalyzer;
+import com.sulfur.core.BytecodeAssembler;
+import com.sulfur.core.BytecodeModifier;
 import com.sulfur.util.SwingUtil;
 import com.sulfur.config.AppSettings;
 import com.sulfur.ui.theme.ThemeManager;
@@ -30,6 +32,7 @@ public class MainWindow {
     private JTextArea statusBar;
     private JTextField searchField;
     private JTabbedPane tabs;
+    private JTextArea bytecodeArea;
     private JCheckBoxMenuItem useCfrMenuItem;
     private JRadioButtonMenuItem lightThemeMenuItem;
     private JRadioButtonMenuItem darkThemeMenuItem;
@@ -41,6 +44,7 @@ public class MainWindow {
 
     private UsageAnalyzer usageAnalyzer;
     private UsageResultsPanel usageResultsPanel;
+    private BytecodeAssembler bytecodeAssembler;
 
     private JarIndex index;
     private File currentJar;
@@ -107,6 +111,7 @@ SwingWorker<JarIndex, Void> worker = new SwingWorker<>() {
             }
             // initialize usageAnalyzer after index is set
             usageAnalyzer = new UsageAnalyzer(index);
+            bytecodeAssembler = new BytecodeAssembler(index);
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(frame, "[!] Error opening .jar file: " + ex.getMessage(),
                     "[!] Error", JOptionPane.ERROR_MESSAGE);
@@ -173,7 +178,6 @@ worker.execute();
                 outputArea.setText(decompiled);
                 SyntaxHighlighter.highlightJava(outputArea);
     
-                JTextArea bytecodeArea = (JTextArea) ((JScrollPane) tabs.getComponentAt(1)).getViewport().getView();
                 bytecodeArea.setText(Disassembler.disassemble(index, className));
                 
                 String statusMessage = "[!] Decompiled: " + className;
@@ -247,17 +251,76 @@ worker.execute();
 
         int result = chooser.showSaveDialog(frame);
         if (result == JFileChooser.APPROVE_OPTION) {
-            try (FileWriter writer = new FileWriter(chooser.getSelectedFile())) {
+            File outputFile = chooser.getSelectedFile();
+            try (FileWriter writer = new FileWriter(outputFile)) {
                 writer.write(outputArea.getText());
-                statusBar.setText("[!] Saved: " + chooser.getSelectedFile().getName());
+                statusBar.setText("[!] Saved: " + outputFile.getName());
             } catch (IOException ex) {
-                JOptionPane.showMessageDialog(frame, 
-                    "[!] Error saving file: " + ex.getMessage(), 
+                JOptionPane.showMessageDialog(frame,
+                    "[!] Error saving file: " + ex.getMessage(),
                     "[!] Error", JOptionPane.ERROR_MESSAGE);
             }
         }
     }
-    
+
+    private void saveBytecode() {
+        if (currentClass == null || currentClass.isEmpty()) {
+            JOptionPane.showMessageDialog(frame, "[!] No class selected to save bytecode", "[!] Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        if (index != null) {
+            try {
+                byte[] originalBytes = index.getClassBytes(currentClass);
+                byte[] modifiedBytes = BytecodeModifier.addNoOpMethod(originalBytes, currentClass);
+
+                index.putClassBytes(currentClass, modifiedBytes);
+                statusBar.setText("[!] Bytecode for " + currentClass + " modified programmatically and updated in memory.");
+
+                bytecodeArea.setText(Disassembler.disassemble(index, currentClass));
+
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(frame, "[!] Error modifying/assembling bytecode: " + e.getMessage(), "[!] Error", JOptionPane.ERROR_MESSAGE);
+            }
+        } else {
+            JOptionPane.showMessageDialog(frame, "[!] No JAR file loaded to save bytecode to.", "[!] Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void saveModifiedJar() {
+        if (index == null || currentJar == null) {
+            JOptionPane.showMessageDialog(frame, "[!] No JAR file loaded.", "[!] Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setSelectedFile(new File(currentJar.getName().replace(".jar", "-modified.jar")));
+        chooser.setFileFilter(new javax.swing.filechooser.FileFilter() {
+            @Override
+            public boolean accept(File f) {
+                return f.isDirectory() || f.getName().toLowerCase().endsWith(".jar");
+            }
+
+            @Override
+            public String getDescription() {
+                return "JAR Files (*.jar)";
+            }
+        });
+
+        int result = chooser.showSaveDialog(frame);
+        if (result == JFileChooser.APPROVE_OPTION) {
+            File outputFile = chooser.getSelectedFile();
+            try {
+                index.saveModifiedJar(outputFile.toPath());
+                statusBar.setText("[!] Modified JAR saved to: " + outputFile.getName());
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(frame,
+                    "[!] Error saving modified JAR: " + ex.getMessage(),
+                    "[!] Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
     private void toggleDecompilerBackend() {
         settings.setUseCfrDecompiler(useCfrMenuItem.isSelected());
         settings.saveSettings();
@@ -317,7 +380,7 @@ worker.execute();
     
         ThemeManager.applyTheme(settings.getTheme());
 
-        // usageAnalyzer is now initialized in onOpenJar() after index is loaded
+        // initialize usageAnalyzer after index is set
 
         var menuBar = new JMenuBar();
 
@@ -335,7 +398,22 @@ worker.execute();
                 saveDecompiledSource();
             }
         });
-        
+
+        fileMenu.add(new AbstractAction("Save bytecode") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                saveBytecode();
+            }
+        });
+
+        fileMenu.addSeparator();
+        fileMenu.add(new AbstractAction("Save modified JAR...") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                saveModifiedJar();
+            }
+        });
+
         fileMenu.addSeparator();
         fileMenu.add(new AbstractAction("Exit") {
             @Override
@@ -355,6 +433,22 @@ worker.execute();
                 showFindReplaceDialog();
             }
         });
+        
+        var bytecodeModMenu = new JMenu("Bytecode Modifications");
+        editMenu.add(bytecodeModMenu);
+
+        var addFieldMenuItem = new JMenuItem("Add Field...");
+        addFieldMenuItem.addActionListener(e -> showAddFieldDialog());
+        bytecodeModMenu.add(addFieldMenuItem);
+
+        var changeMethodAccessMenuItem = new JMenuItem("Change Method Access...");
+        changeMethodAccessMenuItem.addActionListener(e -> showChangeMethodAccessDialog());
+        bytecodeModMenu.add(changeMethodAccessMenuItem);
+
+        var replaceStringLiteralMenuItem = new JMenuItem("Replace String Literal...");
+        replaceStringLiteralMenuItem.addActionListener(e -> showReplaceStringLiteralDialog());
+        bytecodeModMenu.add(replaceStringLiteralMenuItem);
+
         menuBar.add(editMenu);
         
         var settingsMenu = new JMenu("Settings");
@@ -440,7 +534,8 @@ worker.execute();
 
         outputArea.setComponentPopupMenu(outputAreaPopupMenu);
 
-        var bytecodeArea = SwingUtil.monoArea();
+        bytecodeArea = SwingUtil.monoArea();
+        bytecodeArea.setEditable(true);
         tabs.addTab("Bytecode", new JScrollPane(bytecodeArea));
 
         usageResultsPanel = new UsageResultsPanel();
@@ -476,259 +571,449 @@ worker.execute();
     }
 
     private void showFindReplaceDialog() {
-                JDialog dialog = new JDialog(frame, "Sulfur - Find & Replace", true);
-                dialog.setLayout(new BorderLayout());
-                dialog.setSize(500, 250);
-                dialog.setLocationRelativeTo(frame);
-                dialog.setResizable(true);
-                
-                JPanel searchPanel = new JPanel(new GridBagLayout());
-                GridBagConstraints gbc = new GridBagConstraints();
-                gbc.insets = new Insets(5, 5, 5, 5);
-                gbc.fill = GridBagConstraints.HORIZONTAL;
-                
-                gbc.gridx = 0;
-                gbc.gridy = 0;
-                gbc.weightx = 0;
-                searchPanel.add(new JLabel("Find:"), gbc);
-                
-                JTextField findField = new JTextField(20);
-                gbc.gridx = 1;
-                gbc.weightx = 1;
-                searchPanel.add(findField, gbc);
-                
-                gbc.gridx = 0;
-                gbc.gridy = 1;
-                gbc.weightx = 0;
-                searchPanel.add(new JLabel("Replace with:"), gbc);
-                
-                JTextField replaceField = new JTextField(20);
-                gbc.gridx = 1;
-                gbc.weightx = 1;
-                searchPanel.add(replaceField, gbc);
-                
-                JPanel optionsPanel = new JPanel();
-                JCheckBox matchCaseCheckBox = new JCheckBox("Match case");
-                JCheckBox wholeWordCheckBox = new JCheckBox("Whole word");
-                JCheckBox regexCheckBox = new JCheckBox("Use regex");
-                
-                optionsPanel.add(matchCaseCheckBox);
-                optionsPanel.add(wholeWordCheckBox);
-                optionsPanel.add(regexCheckBox);
-                
-                gbc.gridx = 0;
-                gbc.gridy = 2;
-                gbc.gridwidth = 2;
-                searchPanel.add(optionsPanel, gbc);
-                
-                JPanel buttonPanel = new JPanel();
-                JButton findButton = new JButton("Find");
-                JButton replaceButton = new JButton("Replace");
-                JButton replaceAllButton = new JButton("Replace All");
-                JButton closeButton = new JButton("Close");
-                
-                buttonPanel.add(findButton);
-                buttonPanel.add(replaceButton);
-                buttonPanel.add(replaceAllButton);
-                buttonPanel.add(closeButton);
-                
-                JLabel statusLabel = new JLabel(" ");
-                statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        JDialog dialog = new JDialog(frame, "Sulfur - Find & Replace", true);
+        dialog.setLayout(new BorderLayout());
+        dialog.setSize(500, 250);
+        dialog.setLocationRelativeTo(frame);
+        dialog.setResizable(true);
+        
+        JPanel searchPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.weightx = 0;
+        searchPanel.add(new JLabel("Find:"), gbc);
+        
+        JTextField findField = new JTextField(20);
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        searchPanel.add(findField, gbc);
+        
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.weightx = 0;
+        searchPanel.add(new JLabel("Replace with:"), gbc);
+        
+        JTextField replaceField = new JTextField(20);
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        searchPanel.add(replaceField, gbc);
+        
+        JPanel optionsPanel = new JPanel();
+        JCheckBox matchCaseCheckBox = new JCheckBox("Match case");
+        JCheckBox wholeWordCheckBox = new JCheckBox("Whole word");
+        JCheckBox regexCheckBox = new JCheckBox("Use regex");
+        
+        optionsPanel.add(matchCaseCheckBox);
+        optionsPanel.add(wholeWordCheckBox);
+        optionsPanel.add(regexCheckBox);
+        
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.gridwidth = 2;
+        searchPanel.add(optionsPanel, gbc);
+        
+        JPanel buttonPanel = new JPanel();
+        JButton findButton = new JButton("Find");
+        JButton replaceButton = new JButton("Replace");
+        JButton replaceAllButton = new JButton("Replace All");
+        JButton closeButton = new JButton("Close");
+        
+        buttonPanel.add(findButton);
+        buttonPanel.add(replaceButton);
+        buttonPanel.add(replaceAllButton);
+        buttonPanel.add(closeButton);
+        
+        JLabel statusLabel = new JLabel(" ");
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
-                dialog.add(searchPanel, BorderLayout.NORTH);
-                dialog.add(statusLabel, BorderLayout.CENTER);
-                dialog.add(buttonPanel, BorderLayout.SOUTH);
-                
-                findField.requestFocus();
-                
-                closeButton.addActionListener(e -> dialog.dispose());
-                
-                findButton.addActionListener(e -> {
-                    if (findField.getText().isEmpty()) {
-                        statusLabel.setText("[!] Please enter a search term");
-                        return;
-                    }
-                    
-                    String text = outputArea.getText();
-                    String searchTerm = findField.getText();
-                    boolean matchCase = matchCaseCheckBox.isSelected();
-                    boolean wholeWord = wholeWordCheckBox.isSelected();
-                    boolean useRegex = regexCheckBox.isSelected();
-                    
-                    int[] result = findInText(text, searchTerm, matchCase, wholeWord, useRegex);
-                    if (result != null) {
-                        outputArea.setCaretPosition(result[0]);
-                        outputArea.select(result[0], result[1]);
-                        outputArea.requestFocus();
-                        statusLabel.setText("[!] sulfur: Found match at position " + result[0]);
-                    } else {
-                        statusLabel.setText("[!] sulfur: No matches found");
-                    }
-                });
-                
-                replaceButton.addActionListener(e -> {
-                    if (findField.getText().isEmpty()) {
-                        statusLabel.setText("[!] sulfur: Please enter a search term");
-                        return;
-                    }
-                    
-                    String text = outputArea.getText();
-                    String searchTerm = findField.getText();
-                    String replacement = replaceField.getText();
-                    boolean matchCase = matchCaseCheckBox.isSelected();
-                    boolean wholeWord = wholeWordCheckBox.isSelected();
-                    boolean useRegex = regexCheckBox.isSelected();
-                    
-                    int[] result = findInText(text, searchTerm, matchCase, wholeWord, useRegex);
-                    if (result != null) {
-                        try {
-                            outputArea.getDocument().remove(result[0], result[1] - result[0]);
-                        } catch (BadLocationException ex) {
-                            throw new RuntimeException(ex);
-                        }
-                        try {
-                            outputArea.getDocument().insertString(result[0], replacement, null);
-                        } catch (BadLocationException ex) {
-                            throw new RuntimeException(ex);
-                        }
-                        statusLabel.setText("[!] sulfur: Replaced 1 occurrence");
-                    } else {
-                        statusLabel.setText("[!] sulfur: No matches found");
-                    }
-                });
-                
-                replaceAllButton.addActionListener(e -> {
-                    if (findField.getText().isEmpty()) {
-                        statusLabel.setText("[!] sulfur: Please enter a search term");
-                        return;
-                    }
-                    
-                    String text = outputArea.getText();
-                    String searchTerm = findField.getText();
-                    String replacement = replaceField.getText();
-                    boolean matchCase = matchCaseCheckBox.isSelected();
-                    boolean wholeWord = wholeWordCheckBox.isSelected();
-                    boolean useRegex = regexCheckBox.isSelected();
-                    
-                    int count = replaceAllInText(text, searchTerm, replacement, matchCase, wholeWord, useRegex);
-                    statusLabel.setText("[!] sulfur: Replaced " + count + " occurrences");
-                });
-                
-                dialog.setVisible(true);
+        dialog.add(searchPanel, BorderLayout.NORTH);
+        dialog.add(statusLabel, BorderLayout.CENTER);
+        dialog.add(buttonPanel, BorderLayout.SOUTH);
+        
+        findField.requestFocus();
+        
+        closeButton.addActionListener(e -> dialog.dispose());
+        
+        findButton.addActionListener(e -> {
+            if (findField.getText().isEmpty()) {
+                statusLabel.setText("[!] Please enter a search term");
+                return;
             }
             
-            private int[] findInText(String text, String searchTerm, boolean matchCase, boolean wholeWord, boolean useRegex) {
-                if (!matchCase) {
-                    text = text.toLowerCase();
-                    searchTerm = searchTerm.toLowerCase();
+            String text = outputArea.getText();
+            String searchTerm = findField.getText();
+            boolean matchCase = matchCaseCheckBox.isSelected();
+            boolean wholeWord = wholeWordCheckBox.isSelected();
+            boolean useRegex = regexCheckBox.isSelected();
+            
+            int[] result = findInText(text, searchTerm, matchCase, wholeWord, useRegex);
+            if (result != null) {
+                outputArea.setCaretPosition(result[0]);
+                outputArea.select(result[0], result[1]);
+                outputArea.requestFocus();
+                statusLabel.setText("[!] sulfur: Found match at position " + result[0]);
+            } else {
+                statusLabel.setText("[!] sulfur: No matches found");
+            }
+        });
+        
+        replaceButton.addActionListener(e -> {
+            if (findField.getText().isEmpty()) {
+                statusLabel.setText("[!] sulfur: Please enter a search term");
+                return;
+            }
+            
+            String text = outputArea.getText();
+            String searchTerm = findField.getText();
+            String replacement = replaceField.getText();
+            boolean matchCase = matchCaseCheckBox.isSelected();
+            boolean wholeWord = wholeWordCheckBox.isSelected();
+            boolean useRegex = regexCheckBox.isSelected();
+            
+            int[] result = findInText(text, searchTerm, matchCase, wholeWord, useRegex);
+            if (result != null) {
+                try {
+                    outputArea.getDocument().remove(result[0], result[1] - result[0]);
+                } catch (BadLocationException ex) {
+                    throw new RuntimeException(ex);
                 }
-                
-                if (useRegex) {
-                    Pattern pattern;
-                    try {
-                        if (wholeWord) {
-                            pattern = Pattern.compile("\\b" + searchTerm + "\\b", 
-                                    matchCase ? 0 : Pattern.CASE_INSENSITIVE);
-                        } else {
-                            pattern = Pattern.compile(searchTerm, matchCase ? 0 : Pattern.CASE_INSENSITIVE);
-                        }
-                        Matcher matcher = pattern.matcher(text);
-                        if (matcher.find()) {
-                            return new int[] { matcher.start(), matcher.end() };
-                        }
-                    } catch (Exception e) {
-                        return null;
-                    }
+                try {
+                    outputArea.getDocument().insertString(result[0], replacement, null);
+                } catch (BadLocationException ex) {
+                    throw new RuntimeException(ex);
+                }
+                statusLabel.setText("[!] sulfur: Replaced 1 occurrence");
+            } else {
+                statusLabel.setText("[!] sulfur: No matches found");
+            }
+        });
+        
+        replaceAllButton.addActionListener(e -> {
+            if (findField.getText().isEmpty()) {
+                statusLabel.setText("[!] sulfur: Please enter a search term");
+                return;
+            }
+            
+            String text = outputArea.getText();
+            String searchTerm = findField.getText();
+            String replacement = replaceField.getText();
+            boolean matchCase = matchCaseCheckBox.isSelected();
+            boolean wholeWord = wholeWordCheckBox.isSelected();
+            boolean useRegex = regexCheckBox.isSelected();
+            
+            int count = replaceAllInText(text, searchTerm, replacement, matchCase, wholeWord, useRegex);
+            statusLabel.setText("[!] sulfur: Replaced " + count + " occurrences");
+        });
+        
+        dialog.setVisible(true);
+    }
+    
+    private void showAddFieldDialog() {
+        if (currentClass == null || currentClass.isEmpty()) {
+            JOptionPane.showMessageDialog(frame, "Please select a class in the tree to add a field.", "Add Field", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JTextField fieldNameField = new JTextField(20);
+        JTextField fieldDescriptorField = new JTextField(20);
+        JCheckBox publicCb = new JCheckBox("public");
+        JCheckBox privateCb = new JCheckBox("private");
+        JCheckBox protectedCb = new JCheckBox("protected");
+        JCheckBox staticCb = new JCheckBox("static");
+        JCheckBox finalCb = new JCheckBox("final");
+
+        // ensure only one access modifier (public, private, protected) can be selected
+        ButtonGroup accessGroup = new ButtonGroup();
+        accessGroup.add(publicCb);
+        accessGroup.add(privateCb);
+        accessGroup.add(protectedCb);
+        publicCb.setSelected(true); // default to public
+
+        JPanel panel = new JPanel(new GridLayout(0, 2));
+        panel.add(new JLabel("Field Name:"));
+        panel.add(fieldNameField);
+        panel.add(new JLabel("Field Descriptor (e.g., Ljava/lang/String; for String, I for int):"));
+        panel.add(fieldDescriptorField);
+
+        panel.add(new JLabel("Access Modifiers:"));
+        JPanel accessPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        accessPanel.add(publicCb);
+        accessPanel.add(privateCb);
+        accessPanel.add(protectedCb);
+        panel.add(accessPanel);
+
+        panel.add(new JLabel("Other Modifiers:"));
+        JPanel otherModPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        otherModPanel.add(staticCb);
+        otherModPanel.add(finalCb);
+        panel.add(otherModPanel);
+
+        int result = JOptionPane.showConfirmDialog(frame, panel, "Add New Field to " + currentClass, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result == JOptionPane.OK_OPTION) {
+            String fieldName = fieldNameField.getText().trim();
+            String fieldDescriptor = fieldDescriptorField.getText().trim();
+
+            if (fieldName.isEmpty() || fieldDescriptor.isEmpty()) {
+                JOptionPane.showMessageDialog(frame, "Field name and descriptor cannot be empty.", "Add Field Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            int access = 0;
+            if (publicCb.isSelected()) access |= org.objectweb.asm.Opcodes.ACC_PUBLIC;
+            else if (privateCb.isSelected()) access |= org.objectweb.asm.Opcodes.ACC_PRIVATE;
+            else if (protectedCb.isSelected()) access |= org.objectweb.asm.Opcodes.ACC_PROTECTED;
+
+            if (staticCb.isSelected()) access |= org.objectweb.asm.Opcodes.ACC_STATIC;
+            if (finalCb.isSelected()) access |= org.objectweb.asm.Opcodes.ACC_FINAL;
+
+            try {
+                byte[] originalBytes = index.getClassBytes(currentClass);
+                byte[] modifiedBytes = BytecodeModifier.addField(originalBytes, currentClass, fieldName, fieldDescriptor, access);
+                index.putClassBytes(currentClass, modifiedBytes);
+                statusBar.setText("[!] Field '" + fieldName + "' added to " + currentClass + ".");
+                bytecodeArea.setText(Disassembler.disassemble(index, currentClass));
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(frame, "[!] Error adding field: " + ex.getMessage(), "Add Field Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private void showChangeMethodAccessDialog() {
+        if (currentClass == null || currentClass.isEmpty()) {
+            JOptionPane.showMessageDialog(frame, "Please select a class in the tree to change method access.", "Change Method Access", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JTextField methodNameField = new JTextField(20);
+        JTextField methodDescriptorField = new JTextField(20);
+
+        JCheckBox publicCb = new JCheckBox("public");
+        JCheckBox privateCb = new JCheckBox("private");
+        JCheckBox protectedCb = new JCheckBox("protected");
+        JCheckBox staticCb = new JCheckBox("static");
+        JCheckBox finalCb = new JCheckBox("final");
+        JCheckBox synchronizedCb = new JCheckBox("synchronized");
+        JCheckBox abstractCb = new JCheckBox("abstract");
+
+        ButtonGroup accessGroup = new ButtonGroup();
+        accessGroup.add(publicCb);
+        accessGroup.add(privateCb);
+        accessGroup.add(protectedCb);
+
+        JPanel panel = new JPanel(new GridLayout(0, 2));
+        panel.add(new JLabel("Method Name:"));
+        panel.add(methodNameField);
+        panel.add(new JLabel("Method Descriptor (e.g., (Ljava/lang/String;)V for void method with String arg):"));
+        panel.add(methodDescriptorField);
+
+        panel.add(new JLabel("Access Modifiers:"));
+        JPanel accessPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        accessPanel.add(publicCb);
+        accessPanel.add(privateCb);
+        accessPanel.add(protectedCb);
+        panel.add(accessPanel);
+
+        panel.add(new JLabel("Other Modifiers:"));
+        JPanel otherModPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        otherModPanel.add(staticCb);
+        otherModPanel.add(finalCb);
+        otherModPanel.add(synchronizedCb);
+        otherModPanel.add(abstractCb);
+        panel.add(otherModPanel);
+
+        int result = JOptionPane.showConfirmDialog(frame, panel, "Change Method Access in " + currentClass, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result == JOptionPane.OK_OPTION) {
+            String methodName = methodNameField.getText().trim();
+            String methodDescriptor = methodDescriptorField.getText().trim();
+
+            if (methodName.isEmpty() || methodDescriptor.isEmpty()) {
+                JOptionPane.showMessageDialog(frame, "Method name and descriptor cannot be empty.", "Change Method Access Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            int newAccess = 0;
+            if (publicCb.isSelected()) newAccess |= org.objectweb.asm.Opcodes.ACC_PUBLIC;
+            else if (privateCb.isSelected()) newAccess |= org.objectweb.asm.Opcodes.ACC_PRIVATE;
+            else if (protectedCb.isSelected()) newAccess |= org.objectweb.asm.Opcodes.ACC_PROTECTED;
+
+            if (staticCb.isSelected()) newAccess |= org.objectweb.asm.Opcodes.ACC_STATIC;
+            if (finalCb.isSelected()) newAccess |= org.objectweb.asm.Opcodes.ACC_FINAL;
+            if (synchronizedCb.isSelected()) newAccess |= org.objectweb.asm.Opcodes.ACC_SYNCHRONIZED;
+            if (abstractCb.isSelected()) newAccess |= org.objectweb.asm.Opcodes.ACC_ABSTRACT;
+
+            try {
+                byte[] originalBytes = index.getClassBytes(currentClass);
+                byte[] modifiedBytes = BytecodeModifier.changeMethodAccess(originalBytes, currentClass, methodName, methodDescriptor, newAccess);
+                index.putClassBytes(currentClass, modifiedBytes);
+                statusBar.setText("[!] Access for method '" + methodName + methodDescriptor + "' in " + currentClass + " changed.");
+                bytecodeArea.setText(Disassembler.disassemble(index, currentClass));
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(frame, "[!] Error changing method access: " + ex.getMessage(), "Change Method Access Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private void showReplaceStringLiteralDialog() {
+        if (currentClass == null || currentClass.isEmpty()) {
+            JOptionPane.showMessageDialog(frame, "Please select a class in the tree to replace a string literal.", "Replace String Literal", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JTextField methodNameField = new JTextField(20);
+        JTextField methodDescriptorField = new JTextField(20);
+        JTextField oldStringField = new JTextField(20);
+        JTextField newStringField = new JTextField(20);
+
+        JPanel panel = new JPanel(new GridLayout(0, 2));
+        panel.add(new JLabel("Method Name:"));
+        panel.add(methodNameField);
+        panel.add(new JLabel("Method Descriptor:"));
+        panel.add(methodDescriptorField);
+        panel.add(new JLabel("Old String:"));
+        panel.add(oldStringField);
+        panel.add(new JLabel("New String:"));
+        panel.add(newStringField);
+
+        int result = JOptionPane.showConfirmDialog(frame, panel, "Replace String Literal in " + currentClass, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result == JOptionPane.OK_OPTION) {
+            String methodName = methodNameField.getText().trim();
+            String methodDescriptor = methodDescriptorField.getText().trim();
+            String oldString = oldStringField.getText();
+            String newString = newStringField.getText();
+
+            if (methodName.isEmpty() || methodDescriptor.isEmpty() || oldString.isEmpty()) {
+                JOptionPane.showMessageDialog(frame, "Method name, descriptor, and old string cannot be empty.", "Replace String Literal Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            try {
+                byte[] originalBytes = index.getClassBytes(currentClass);
+                byte[] modifiedBytes = BytecodeModifier.replaceStringLiteral(originalBytes, currentClass, methodName, methodDescriptor, oldString, newString);
+                index.putClassBytes(currentClass, modifiedBytes);
+                statusBar.setText("[!] String literal in method '" + methodName + methodDescriptor + "' in " + currentClass + " replaced.");
+                bytecodeArea.setText(Disassembler.disassemble(index, currentClass));
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(frame, "[!] Error replacing string literal: " + ex.getMessage(), "Replace String Literal Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private int[] findInText(String text, String searchTerm, boolean matchCase, boolean wholeWord, boolean useRegex) {
+        if (!matchCase) {
+            text = text.toLowerCase();
+            searchTerm = searchTerm.toLowerCase();
+        }
+        
+        if (useRegex) {
+            Pattern pattern;
+            try {
+                if (wholeWord) {
+                    pattern = Pattern.compile("\\b" + searchTerm + "\\b", 
+                            matchCase ? 0 : Pattern.CASE_INSENSITIVE);
                 } else {
-                    if (wholeWord) {
-                        searchTerm = "\\b" + Pattern.quote(searchTerm) + "\\b";
-                        Pattern pattern = Pattern.compile(searchTerm, matchCase ? 0 : Pattern.CASE_INSENSITIVE);
-                        Matcher matcher = pattern.matcher(text);
-                        if (matcher.find()) {
-                            return new int[] { matcher.start(), matcher.end() };
-                        }
-                    } else {
-                        int index = text.indexOf(searchTerm);
-                        if (index >= 0) {
-                            return new int[] { index, index + searchTerm.length() };
-                        }
-                    }
+                    pattern = Pattern.compile(searchTerm, matchCase ? 0 : Pattern.CASE_INSENSITIVE);
                 }
-                
+                Matcher matcher = pattern.matcher(text);
+                if (matcher.find()) {
+                    return new int[] { matcher.start(), matcher.end() };
+                }
+            } catch (Exception e) {
                 return null;
             }
-            
-            private int replaceAllInText(String text, String searchTerm, String replacement, 
-                                       boolean matchCase, boolean wholeWord, boolean useRegex) {
-                String original = outputArea.getText();
-                String result;
-                int count = 0;
-                
-                if (useRegex) {
-                    try {
-                        Pattern pattern;
-                        if (wholeWord) {
-                            pattern = Pattern.compile("\\b" + searchTerm + "\\b", 
-                                    matchCase ? 0 : Pattern.CASE_INSENSITIVE);
-                        } else {
-                            pattern = Pattern.compile(searchTerm, matchCase ? 0 : Pattern.CASE_INSENSITIVE);
-                        }
-                        
-                        Matcher matcher = pattern.matcher(original);
-                        result = matcher.replaceAll(replacement);
-                        count = (int) matcher.results().count();
-                    } catch (Exception e) {
-                        return 0;
-                    }
+        } else {
+            if (wholeWord) {
+                searchTerm = "\\b" + Pattern.quote(searchTerm) + "\\b";
+                Pattern pattern = Pattern.compile(searchTerm, matchCase ? 0 : Pattern.CASE_INSENSITIVE);
+                Matcher matcher = pattern.matcher(text);
+                if (matcher.find()) {
+                    return new int[] { matcher.start(), matcher.end() };
+                }
+            } else {
+                int index = text.indexOf(searchTerm);
+                if (index >= 0) {
+                    return new int[] { index, index + searchTerm.length() };
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    private int replaceAllInText(String text, String searchTerm, String replacement, 
+                               boolean matchCase, boolean wholeWord, boolean useRegex) {
+        String original = outputArea.getText();
+        String result;
+        int count = 0;
+        
+        if (useRegex) {
+            try {
+                Pattern pattern;
+                if (wholeWord) {
+                    pattern = Pattern.compile("\\b" + searchTerm + "\\b", 
+                            matchCase ? 0 : Pattern.CASE_INSENSITIVE);
                 } else {
-                    if (wholeWord) {
-                        Pattern pattern = Pattern.compile("\\b" + Pattern.quote(searchTerm) + "\\b", 
-                                matchCase ? 0 : Pattern.CASE_INSENSITIVE);
-                        Matcher matcher = pattern.matcher(original);
-                        StringBuffer sb = new StringBuffer();
-                        while (matcher.find()) {
-                            matcher.appendReplacement(sb, replacement);
+                    pattern = Pattern.compile(searchTerm, matchCase ? 0 : Pattern.CASE_INSENSITIVE);
+                }
+                
+                Matcher matcher = pattern.matcher(original);
+                result = matcher.replaceAll(replacement);
+                count = (int) matcher.results().count();
+            } catch (Exception e) {
+                return 0;
+            }
+        } else {
+            if (wholeWord) {
+                Pattern pattern = Pattern.compile("\\b" + Pattern.quote(searchTerm) + "\\b", 
+                        matchCase ? 0 : Pattern.CASE_INSENSITIVE);
+                Matcher matcher = pattern.matcher(original);
+                StringBuffer sb = new StringBuffer();
+                while (matcher.find()) {
+                    matcher.appendReplacement(sb, replacement);
+                    count++;
+                }
+                matcher.appendTail(sb);
+                result = sb.toString();
+            } else {
+                if (!matchCase) {
+                    StringBuffer sb = new StringBuffer();
+                    String lowerText = original.toLowerCase();
+                    String lowerSearchTerm = searchTerm.toLowerCase();
+                    int lastIndex = 0;
+                    int index;
+                    
+                    while ((index = lowerText.indexOf(lowerSearchTerm, lastIndex)) != -1) {
+                        sb.append(original, lastIndex, index);
+                        sb.append(replacement);
+                        lastIndex = index + searchTerm.length();
+                        count++;
+                    }
+                    
+                    sb.append(original.substring(lastIndex));
+                    result = sb.toString();
+                } else {
+                    result = original.replace(searchTerm, replacement);
+                    count = (original.length() - result.length()) / (searchTerm.length() - replacement.length());
+                    if (searchTerm.length() == replacement.length()) {
+                        int fromIndex = 0;
+                        count = 0;
+                        while ((fromIndex = original.indexOf(searchTerm, fromIndex)) >= 0) {
                             count++;
-                        }
-                        matcher.appendTail(sb);
-                        result = sb.toString();
-                    } else {
-                        if (!matchCase) {
-                            StringBuffer sb = new StringBuffer();
-                            String lowerText = original.toLowerCase();
-                            String lowerSearchTerm = searchTerm.toLowerCase();
-                            int lastIndex = 0;
-                            int index;
-                            
-                            while ((index = lowerText.indexOf(lowerSearchTerm, lastIndex)) != -1) {
-                                sb.append(original, lastIndex, index);
-                                sb.append(replacement);
-                                lastIndex = index + searchTerm.length();
-                                count++;
-                            }
-                            
-                            sb.append(original.substring(lastIndex));
-                            result = sb.toString();
-                        } else {
-                            result = original.replace(searchTerm, replacement);
-                            count = (original.length() - result.length()) / (searchTerm.length() - replacement.length());
-                            if (searchTerm.length() == replacement.length()) {
-                                int fromIndex = 0;
-                                count = 0;
-                                while ((fromIndex = original.indexOf(searchTerm, fromIndex)) >= 0) {
-                                    count++;
-                                    fromIndex += searchTerm.length();
-                                }
-                            }
+                            fromIndex += searchTerm.length();
                         }
                     }
                 }
-                
-                outputArea.setText(result);
-                return count;
             }
-            
-            private void showCredits() {
+        }
+        
+        outputArea.setText(result);
+        return count;
+    }
+    
+    private void showCredits() {
         JDialog dialog = new JDialog(frame, "Credits", true);
         dialog.setLayout(new BorderLayout());
         dialog.setSize(500, 300);
@@ -768,5 +1053,5 @@ worker.execute();
         dialog.add(buttonPanel, BorderLayout.SOUTH);
 
         dialog.setVisible(true);
-            }
+    }
 }
