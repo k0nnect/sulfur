@@ -2,62 +2,63 @@ plugins {
     id 'java'
     id 'application'
     id 'com.github.johnrengelman.shadow' version '8.1.1'
-
 }
 
-shadowJar {
-    archiveBaseName.set('sulfur')
-    archiveClassifier.set('')  // no “-all”
-    archiveVersion.set('')     // no version suffix
-}
+group = 'com.sulfur'
+version = 'v1.0.1'         
 
 java {
-
     toolchain {
-        languageVersion = JavaLanguageVersion.of(25)
+
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
 repositories {
     mavenCentral()
     maven { url 'https://jitpack.io' }
+
     jcenter()
 }
 
 dependencies {
-// bytecode reading & text output
+    // bytecode reading & text output
     implementation 'org.ow2.asm:asm:9.8'
     implementation 'org.ow2.asm:asm-util:9.8'
-        // CFR
-        implementation 'com.github.leibnitz27:cfr:0.152'
+
+    // CFR
+    implementation 'com.github.leibnitz27:cfr:0.152'
+
     // procyon
     implementation 'org.bitbucket.mstrobel:procyon-core:0.6.0'
     implementation 'org.bitbucket.mstrobel:procyon-compilertools:0.6.0'
+
     // UI helpers
     implementation 'org.jetbrains:annotations:24.1.0'
-    // discord rpc lib
+
+    // discord rpc libs
     implementation 'com.github.Vatuu:discord-rpc:1.6.2'
     implementation 'club.minnced:java-discord-rpc:2.0.2'
-    implementation("club.minnced:discord-rpc-release:v3.3.0")
-
-application {
-    mainClass = 'com.sulfur.App'
+    implementation 'club.minnced:discord-rpc-release:v3.3.0'
 }
 
-// make jars run with dependencies (fat jar)
-tasks.register('fatJar', Jar) {
-    archiveClassifier = 'all'
-    from sourceSets.main.output
-    dependsOn configurations.runtimeClasspath
-    from {
-        configurations.runtimeClasspath.findAll { it.name.endsWith('jar') }.collect { zipTree(it) }
+application {
+
+    mainClass.set('com.sulfur.App')
+}
+
+shadowJar {
+
+    archiveBaseName.set('sulfur')
+    archiveClassifier.set('')      
+    archiveVersion.set(project.version.toString())
+    mergeServiceFiles()             
+
+}
+
+tasks {
+    // 
+    build {
+        dependsOn shadowJar
     }
-    manifest {
-        attributes 'Main-Class': application.
-                tasks.jar {
-            manifest {
-                attributes 'Main-Class': application.mainClass
-           }
-        }
-    }
-}}
+}
