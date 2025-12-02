@@ -233,10 +233,29 @@ public class AppSettings {
 
     public void deleteProfile(String profileId) {
         decompilerProfiles.remove(profileId);
-        if (profileId.equals(activeDecompilerProfileId)) {
-            // if the active profile is deleted, switch to default
-            this.activeDecompilerProfileId = "Default";
-            applyProfileSettings(decompilerProfiles.get("Default"));
+        // if the active profile is deleted, switch to default
+        String defaultProfileId = null;
+        for (DecompilerProfile profile : decompilerProfiles.values()) {
+            if ("Default".equals(profile.getName())) {
+                defaultProfileId = profile.getId();
+                break;
+            }
+        }
+
+        if (defaultProfileId != null) {
+            this.activeDecompilerProfileId = defaultProfileId;
+            applyProfileSettings(decompilerProfiles.get(defaultProfileId));
+        } else if (!decompilerProfiles.isEmpty()) {
+
+            String firstAvailableProfileId = decompilerProfiles.keySet().iterator().next();
+            this.activeDecompilerProfileId = firstAvailableProfileId;
+            applyProfileSettings(decompilerProfiles.get(firstAvailableProfileId));
+        } else {
+
+            DecompilerProfile newDefaultProfile = new DecompilerProfile("Default", false, Theme.LIGHT, false, false, true);
+            this.decompilerProfiles.put(newDefaultProfile.getId(), newDefaultProfile);
+            this.activeDecompilerProfileId = newDefaultProfile.getId();
+            applyProfileSettings(newDefaultProfile);
         }
     }
 
