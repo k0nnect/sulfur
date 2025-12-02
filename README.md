@@ -30,8 +30,7 @@ cd sulfur
 ```
 Or alternatively, you can build a runnable JAR:
 ```bash
-./gradlew fatJar
-java -jar build/libs/sulfur-all.jar
+./gradlew clean shadowJar
 ```
 
 ### 🤝 Contributing
