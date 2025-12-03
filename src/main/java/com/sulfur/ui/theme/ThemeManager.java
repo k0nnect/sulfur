@@ -20,12 +20,13 @@ public class ThemeManager {
             switch (theme) {
                 case DARK:
                     FlatDarkLaf.setup();
+                    UIManager.setLookAndFeel(new FlatDarkLaf()); // Set Dark theme
                     break;
                 case LIGHT:
                     FlatLightLaf.setup();
+                    UIManager.setLookAndFeel(new FlatLightLaf()); // Set Light theme
                     break;
             }
-            UIManager.setLookAndFeel(new FlatDarkLaf()); 
         } catch (Exception e) {
             System.err.println("[!] Failed to apply theme: " + e.getMessage());
         }

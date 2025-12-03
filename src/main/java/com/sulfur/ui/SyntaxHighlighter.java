@@ -43,7 +43,7 @@ public class SyntaxHighlighter {
         StyleConstants.setForeground(numberStyle, UIManager.getColor("Editor.foreground")); 
 
         Style typeStyle = doc.addStyle("typeStyle", defaultStyle);
-        StyleConstants.setForeground(typeStyle, UIManager.getColor("Editor.background")); 
+        StyleConstants.setForeground(typeStyle, UIManager.getColor("TextPane.foreground")); // Corrected from Editor.background
 
         Style annotationStyle = doc.addStyle("annotationStyle", defaultStyle);
         StyleConstants.setForeground(annotationStyle, UIManager.getColor("ComboBox.buttonBackground")); 

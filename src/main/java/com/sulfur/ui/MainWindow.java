@@ -24,6 +24,8 @@ import java.io.IOException;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 
 public class MainWindow {
     private JFrame frame;
@@ -156,6 +158,63 @@ worker.execute();
 
         classTree.setModel(new DefaultTreeModel(root));
         SwingUtil.expandAll(classTree);
+        filterClassTree(); // Call filterClassTree after updating the tree content
+    }
+
+    private void filterClassTree() {
+        if (index == null || currentJar == null) return;
+
+        String searchTerm = searchField.getText().toLowerCase();
+        DefaultMutableTreeNode root = new DefaultMutableTreeNode(currentJar.getName());
+        Map<String, DefaultMutableTreeNode> packageNodes = new HashMap<>();
+
+        for (String className : index.classNames()) {
+            if (searchTerm.isEmpty() || className.toLowerCase().contains(searchTerm)) {
+                String[] parts = className.split("\\.");
+                StringBuilder packagePath = new StringBuilder();
+                DefaultMutableTreeNode parentNode = root;
+
+                for (int i = 0; i < parts.length - 1; i++) {
+                    if (i > 0) packagePath.append(".");
+                    packagePath.append(parts[i]);
+                    String pkg = packagePath.toString();
+
+                    if (!packageNodes.containsKey(pkg)) {
+                        DefaultMutableTreeNode node = new DefaultMutableTreeNode(parts[i]);
+                        packageNodes.put(pkg, node);
+                        parentNode.add(node);
+                    }
+                    parentNode = packageNodes.get(pkg);
+                }
+
+                DefaultMutableTreeNode classNode = new DefaultMutableTreeNode(parts[parts.length - 1]);
+                classNode.setUserObject(className);
+                parentNode.add(classNode);
+            }
+        }
+
+        classTree.setModel(new DefaultTreeModel(root));
+        SwingUtil.expandAll(classTree);
+    }
+
+    private JPopupMenu createClassTreePopupMenu() {
+        JPopupMenu popupMenu = new JPopupMenu();
+
+        JMenuItem decompileMenuItem = new JMenuItem("Decompile");
+        decompileMenuItem.addActionListener(e -> decompileSelectedClass());
+        popupMenu.add(decompileMenuItem);
+
+        JMenuItem findUsagesMenuItem = new JMenuItem("Find Usages");
+        findUsagesMenuItem.addActionListener(e -> findUsagesOfSelectedClass()); // Call new method
+        popupMenu.add(findUsagesMenuItem);
+
+        popupMenu.addSeparator();
+
+        JMenuItem saveSourceMenuItem = new JMenuItem("Save Source as .java file");
+        saveSourceMenuItem.addActionListener(e -> saveDecompiledSource());
+        popupMenu.add(saveSourceMenuItem);
+
+        return popupMenu;
     }
 
     private void decompileSelectedClass() {
@@ -206,7 +265,33 @@ worker.execute();
             }
         }
     }
-    
+
+    private void findUsagesOfSelectedClass() {
+        DefaultMutableTreeNode node = (DefaultMutableTreeNode) classTree.getLastSelectedPathComponent();
+        if (node == null || !node.isLeaf() || !(node.getUserObject() instanceof String)) {
+            JOptionPane.showMessageDialog(frame, "Please select a class in the tree to find usages.", "Find Usages", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        String className = (String) node.getUserObject();
+
+        if (index == null) {
+            JOptionPane.showMessageDialog(frame, "No JAR file loaded.", "Find Usages", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        if (usageAnalyzer == null) {
+            JOptionPane.showMessageDialog(frame, "Usage analyzer not initialized. Please load a JAR file first.", "Find Usages", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        Set<String> usages = usageAnalyzer.findUsages(className);
+
+        usageResultsPanel.displayUsages(usages);
+        tabs.setSelectedComponent(usageResultsPanel);
+        statusBar.setText("[!] Found usages for: " + className);
+    }
+
     private void toggleDiscordRpc(boolean enabled) {
         settings.setDiscordRichPresence(enabled);
         settings.saveSettings();
@@ -522,10 +607,28 @@ worker.execute();
         searchField = new JTextField();
         searchField.setPreferredSize(new Dimension(0, 30)); // Give search field a preferred height
         searchField.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5)); // Add some padding
+        searchField.putClientProperty("JTextField.placeholderText", "Search classes..."); // Placeholder text
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                filterClassTree();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                filterClassTree();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                filterClassTree();
+            }
+        });
         left.add(searchField, BorderLayout.NORTH);
         classTree = new JTree(new DefaultTreeModel(new DefaultMutableTreeNode("Loading..."))); // Initialize with a default model
         classTree.addTreeSelectionListener(e -> decompileSelectedClass());
         classTree.setBackground(new Color(0, 0, 0, 0)); // Transparent background for tree
+        classTree.setComponentPopupMenu(createClassTreePopupMenu()); // Add context menu
         left.add(new JScrollPane(classTree), BorderLayout.CENTER);
         left.setPreferredSize(new Dimension(340, 800));
 
@@ -1052,13 +1155,18 @@ worker.execute();
         dialog.setLocationRelativeTo(frame);
 
         JEditorPane creditsPane = new JEditorPane();
-        creditsPane.setContentType("text/plain"); // Set content type to plain text
+        creditsPane.setContentType("text/html"); // Revert to HTML content type
         creditsPane.setEditable(false);
         creditsPane.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true);
         
-        // Set font and alignment using UIManager for FlatLaf consistency
-        creditsPane.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 14f));
-        creditsPane.setText("The Sulfur Project\nDeveloped by k0nnect\n\nVisit the project repository on GitHub!:\nhttps://github.com/k0nnect/sulfur");
+        // Use HTML content for proper hyperlink rendering
+        String creditsText = "<html><body style='text-align: center; font-family: Arial; margin: 20px;'>" +
+                "<h2>The Sulfur Project</h2>" +
+                "<p>Developed by k0nnect</p>" +
+                "<p>Visit the project repository on GitHub!:</p>" +
+                "<p><a href='https://github.com/k0nnect/sulfur'>https://github.com/k0nnect/sulfur</a></p>" +
+                "</body></html>";
+        creditsPane.setText(creditsText);
 
         creditsPane.addHyperlinkListener(e -> {
             if (e.getEventType() == javax.swing.event.HyperlinkEvent.EventType.ACTIVATED) {
