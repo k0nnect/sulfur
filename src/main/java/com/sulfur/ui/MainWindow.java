@@ -362,6 +362,9 @@ worker.execute();
         settings = AppSettings.loadSettings();
         discordService = com.sulfur.rpc.DiscordService.getInstance();
         
+        // Set FlatLaf Dark theme as default
+        ThemeManager.applyTheme(settings.getTheme());
+
         if (settings.isDiscordRichPresence()) {
             discordService.initialize();
             discordService.enable();
@@ -378,8 +381,6 @@ worker.execute();
             System.err.println("[!] Failed to load application icon: " + e.getMessage());
         }
     
-        ThemeManager.applyTheme(settings.getTheme());
-
         // initialize usageAnalyzer after index is set
 
         var menuBar = new JMenuBar();
@@ -466,6 +467,8 @@ worker.execute();
             settings.setTheme(Theme.LIGHT);
             settings.saveSettings();
             ThemeManager.applyTheme(Theme.LIGHT);
+            // Ensure the entire UI updates its L&F
+            SwingUtilities.updateComponentTreeUI(frame);
         });
         themeGroup.add(lightThemeMenuItem);
         themeMenu.add(lightThemeMenuItem);
@@ -475,6 +478,8 @@ worker.execute();
             settings.setTheme(Theme.DARK);
             settings.saveSettings();
             ThemeManager.applyTheme(Theme.DARK);
+            // Ensure the entire UI updates its L&F
+            SwingUtilities.updateComponentTreeUI(frame);
         });
         themeGroup.add(darkThemeMenuItem);
         themeMenu.add(darkThemeMenuItem);
@@ -515,16 +520,19 @@ worker.execute();
 
         var left = new JPanel(new BorderLayout());
         searchField = new JTextField();
+        searchField.setPreferredSize(new Dimension(0, 30)); // Give search field a preferred height
+        searchField.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5)); // Add some padding
         left.add(searchField, BorderLayout.NORTH);
-        classTree = new JTree(new DefaultMutableTreeNode("[!] No .jar file loaded!"));
+        classTree = new JTree(new DefaultTreeModel(new DefaultMutableTreeNode("Loading..."))); // Initialize with a default model
         classTree.addTreeSelectionListener(e -> decompileSelectedClass());
+        classTree.setBackground(new Color(0, 0, 0, 0)); // Transparent background for tree
         left.add(new JScrollPane(classTree), BorderLayout.CENTER);
         left.setPreferredSize(new Dimension(340, 800));
 
         tabs = new JTabbedPane();
         outputArea = new JTextPane();
         outputArea.setEditable(false);
-        outputArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        outputArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12)); // Use FlatLaf default monospaced font
         tabs.addTab("Decompiled", new JScrollPane(outputArea));
 
         outputAreaPopupMenu = new JPopupMenu();
@@ -536,6 +544,7 @@ worker.execute();
 
         bytecodeArea = SwingUtil.monoArea();
         bytecodeArea.setEditable(true);
+        bytecodeArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12)); // Use FlatLaf default monospaced font
         tabs.addTab("Bytecode", new JScrollPane(bytecodeArea));
 
         usageResultsPanel = new UsageResultsPanel();
@@ -543,6 +552,8 @@ worker.execute();
 
         statusBar = new JTextArea(1, 0);
         statusBar.setEditable(false);
+        statusBar.setPreferredSize(new Dimension(0, 30)); // Set preferred height
+        statusBar.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5)); // Add padding
 
         var splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, tabs);
 
@@ -576,6 +587,12 @@ worker.execute();
         dialog.setSize(500, 250);
         dialog.setLocationRelativeTo(frame);
         dialog.setResizable(true);
+
+        // Apply FlatLaf styles to dialog components
+        UIManager.put("Button.arc", 8);
+        UIManager.put("Component.arc", 8);
+        UIManager.put("Button.default.boldText", true);
+        UIManager.put("TextComponent.arc", 8);
         
         JPanel searchPanel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
@@ -726,6 +743,11 @@ worker.execute();
         JCheckBox staticCb = new JCheckBox("static");
         JCheckBox finalCb = new JCheckBox("final");
 
+        // Set FlatLaf button style for the JOptionPane
+        UIManager.put("Button.arc", 8);
+        UIManager.put("Component.arc", 8);
+        UIManager.put("Button.default.boldText", true);
+
         // ensure only one access modifier (public, private, protected) can be selected
         ButtonGroup accessGroup = new ButtonGroup();
         accessGroup.add(publicCb);
@@ -799,6 +821,11 @@ worker.execute();
         JCheckBox synchronizedCb = new JCheckBox("synchronized");
         JCheckBox abstractCb = new JCheckBox("abstract");
 
+        // Set FlatLaf button style for the JOptionPane
+        UIManager.put("Button.arc", 8);
+        UIManager.put("Component.arc", 8);
+        UIManager.put("Button.default.boldText", true);
+
         ButtonGroup accessGroup = new ButtonGroup();
         accessGroup.add(publicCb);
         accessGroup.add(privateCb);
@@ -868,6 +895,11 @@ worker.execute();
         JTextField oldStringField = new JTextField(20);
         JTextField newStringField = new JTextField(20);
 
+        // Set FlatLaf button style for the JOptionPane
+        UIManager.put("Button.arc", 8);
+        UIManager.put("Component.arc", 8);
+        UIManager.put("Button.default.boldText", true);
+
         JPanel panel = new JPanel(new GridLayout(0, 2));
         panel.add(new JLabel("Method Name:"));
         panel.add(methodNameField);
@@ -879,7 +911,7 @@ worker.execute();
         panel.add(newStringField);
 
         int result = JOptionPane.showConfirmDialog(frame, panel, "Replace String Literal in " + currentClass, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-        if (result == JOptionPane.OK_OPTION) {
+        if (result == JFileChooser.APPROVE_OPTION) {
             String methodName = methodNameField.getText().trim();
             String methodDescriptor = methodDescriptorField.getText().trim();
             String oldString = oldStringField.getText();
@@ -1020,17 +1052,13 @@ worker.execute();
         dialog.setLocationRelativeTo(frame);
 
         JEditorPane creditsPane = new JEditorPane();
-        creditsPane.setContentType("text/html");
+        creditsPane.setContentType("text/plain"); // Set content type to plain text
         creditsPane.setEditable(false);
         creditsPane.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true);
         
-        String creditsText = "<html><body style='text-align: center; font-family: Arial; margin: 20px;'>" +
-                "<h2>The Sulfur Project</h2>" +
-                "<p>Developed by k0nnect</p>" +
-                "<p>Visit the project repository on GitHub!:</p>" +
-                "<p><a href='https://github.com/k0nnect/sulfur'>https://github.com/k0nnect/sulfur</a></p>" +
-                "</body></html>";
-        creditsPane.setText(creditsText);
+        // Set font and alignment using UIManager for FlatLaf consistency
+        creditsPane.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 14f));
+        creditsPane.setText("The Sulfur Project\nDeveloped by k0nnect\n\nVisit the project repository on GitHub!:\nhttps://github.com/k0nnect/sulfur");
 
         creditsPane.addHyperlinkListener(e -> {
             if (e.getEventType() == javax.swing.event.HyperlinkEvent.EventType.ACTIVATED) {
